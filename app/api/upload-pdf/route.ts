@@ -3,7 +3,8 @@ import { writeFile, mkdir } from "fs/promises";
 import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { existsSync, unlinkSync } from "fs";
-import { PDFDocument } from "pdf-lib";
+import { PDFParse } from "pdf-parse";
+
 
 const UPLOAD_DIR = join(process.cwd(), "public/dienstplan-uploads");
 
@@ -33,18 +34,25 @@ async function getUniquePdfFilename(baseName: string): Promise<string> {
   return candidate;
 }
 
-async function extractPdfTitle(bytes: ArrayBuffer): Promise<string | null> {
+async function extractFirstLineFromPdf(bytes: ArrayBuffer): Promise<string | null> {
+  const parser = new PDFParse({ data: Buffer.from(bytes) });
+
   try {
-    const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
-    const title = pdf.getTitle();
-    if (!title) {
+    const parsedText = await parser.getText();
+    const firstLine = parsedText.text
+      .split(/\r?\n/)
+      .map((line: string) => line.trim())
+      .find((line: string) => line.length > 0);
+
+    if (!firstLine) {
       return null;
     }
 
-    const cleanedTitle = sanitizeBaseName(title);
-    return cleanedTitle.length > 0 ? cleanedTitle : null;
+    return sanitizeBaseName(firstLine);
   } catch {
     return null;
+  } finally {
+    await parser.destroy();
   }
 }
 
@@ -118,9 +126,9 @@ export async function POST(request: NextRequest) {
       }
 
       const bytes = await file.arrayBuffer();
-      const metadataTitle = await extractPdfTitle(bytes);
+      const firstLineName = await extractFirstLineFromPdf(bytes);
       const fallbackName = sanitizeBaseName(stripPdfExtension(file.name));
-      const baseName = metadataTitle ?? fallbackName;
+      const baseName = firstLineName ?? fallbackName;
       const filename = await getUniquePdfFilename(baseName);
       const filepath = join(UPLOAD_DIR, filename);
 
@@ -130,7 +138,7 @@ export async function POST(request: NextRequest) {
         name: file.name,
         size: file.size,
         savedAs: filename,
-        usedTitle: metadataTitle ?? null,
+        usedFirstLine: firstLineName ?? null,
       });
     }
 

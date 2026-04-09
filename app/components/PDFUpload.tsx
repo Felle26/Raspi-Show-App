@@ -10,7 +10,11 @@ type UploadedFile = {
   url: string;
 };
 
-export default function PDFUpload() {
+interface PDFUploadProps {
+  onUploadComplete?: () => void;
+}
+
+export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
@@ -146,6 +150,10 @@ export default function PDFUpload() {
         const input = document.getElementById("pdfInput") as HTMLInputElement;
         if (input) input.value = "";
         await loadServerFiles();
+        // Callback aufrufen
+        if (onUploadComplete) {
+          onUploadComplete();
+        }
       }
     } catch {
       setMessage({
