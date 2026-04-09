@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import PDFUpload from '@/app/components/PDFUpload';
 import { PDFPreviewWithLayers } from '@/app/components/PDFPreviewWithLayers';
 
@@ -20,6 +21,7 @@ interface PDFFile {
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [drawings, setDrawings] = useState<Record<string, Drawing[]>>({});
   const [loading, setLoading] = useState(true);
@@ -114,6 +116,7 @@ export default function AdminPage() {
       });
 
       alert('PDF gelöscht');
+      router.refresh();
     } catch (err) {
       alert(`Fehler: ${err}`);
     } finally {

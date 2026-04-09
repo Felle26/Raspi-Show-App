@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type UploadedFile = {
   name: string;
@@ -10,14 +11,23 @@ type UploadedFile = {
   url: string;
 };
 
+type UploadResultFile = {
+  name: string;
+  savedAs: string;
+  detectedName: string | null;
+  planKwMatched: boolean;
+};
+
 interface PDFUploadProps {
   onUploadComplete?: () => void;
 }
 
 export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [uploadResults, setUploadResults] = useState<UploadResultFile[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [serverFiles, setServerFiles] = useState<UploadedFile[]>([]);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
@@ -87,6 +97,7 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
         text: data.message || "Datei gelöscht",
       });
       await loadServerFiles();
+      router.refresh();
     } catch {
       setMessage({
         type: "error",
@@ -100,6 +111,7 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSelectedFiles(e.target.files);
     setMessage({ type: "", text: "" });
+    setUploadResults([]);
   };
 
   const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -139,8 +151,14 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
       const data = await response.json();
 
       if (!response.ok) {
+        setUploadResults([]);
         setMessage({ type: "error", text: data.error || "Upload fehlgeschlagen" });
       } else {
+        const resultFiles: UploadResultFile[] = Array.isArray(data.files)
+          ? data.files
+          : [];
+
+        setUploadResults(resultFiles);
         setMessage({
           type: "success",
           text: `${selectedFiles.length} Datei(en) erfolgreich hochgeladen!`,
@@ -154,8 +172,10 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
         if (onUploadComplete) {
           onUploadComplete();
         }
+        router.refresh();
       }
     } catch {
+      setUploadResults([]);
       setMessage({
         type: "error",
         text: "Fehler beim Upload. Bitte versuche es erneut.",
@@ -273,6 +293,31 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
             >
               {message.type === "success" ? "✓ " : "✕ "}
               {message.text}
+            </div>
+          )}
+
+          {uploadResults.length > 0 && (
+            <div className="rounded border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-3">
+              <p className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2">
+                Erkannte Namen beim Upload:
+              </p>
+              <ul className="space-y-2">
+                {uploadResults.map((file, idx) => (
+                  <li
+                    key={`${file.savedAs}-${idx}`}
+                    className="text-sm text-green-900 dark:text-green-200"
+                  >
+                    <p className="font-medium">Original: {file.name}</p>
+                    <p>
+                      Erkannt: {file.detectedName ?? "Kein Muster gefunden"}
+                    </p>
+                    <p>
+                      Muster: {file.planKwMatched ? "Plan KW erkannt" : "Fallback verwendet"}
+                    </p>
+                    <p className="font-semibold">Gespeichert als: {file.savedAs}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

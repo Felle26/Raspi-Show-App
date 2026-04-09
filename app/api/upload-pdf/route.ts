@@ -35,11 +35,15 @@ async function getUniquePdfFilename(baseName: string): Promise<string> {
 }
 
 function extractPlanKwName(text: string): string | null {
-  const normalizedText = text.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizedText = text
+    .replace(/\u00A0/g, ' ')
+    .replace(/[‐‑‒–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  // Bevorzugt Muster mit "Plan" oder "Dienstplan".
+  // Unterstützt Varianten wie: Plan KW 14, Plan K.W. 14, Dienstplan K W: 14/2026.
   const namedMatch = normalizedText.match(
-    /\b(?:Plan|Dienstplan)\s*KW\s*[:.-]?\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?\b/i
+    /\b(?:plan|dienstplan)\b[\s:;,.\-_/]*k[\s.\-_/]*w[\s:;,.\-_/]*(\d{1,2})(?:[\s:;,.\-_/]*(\d{2,4}))?\b/i
   );
   if (namedMatch) {
     const kw = namedMatch[1];
@@ -47,13 +51,30 @@ function extractPlanKwName(text: string): string | null {
     return sanitizeBaseName(`Plan KW ${kw}${year}`);
   }
 
-  // Fallback: Nur "KW <Nummer>" im Dokument gefunden.
+  // Fallback: Nur "KW <Nummer>" im Dokument gefunden (inkl. K.W. oder K W).
   const kwOnlyMatch = normalizedText.match(
-    /\bKW\s*[:.-]?\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?\b/i
+    /\bk[\s.\-_/]*w[\s:;,.\-_/]*(\d{1,2})(?:[\s:;,.\-_/]*(\d{2,4}))?\b/i
   );
   if (kwOnlyMatch) {
     const kw = kwOnlyMatch[1];
     const year = kwOnlyMatch[2] ? ` ${kwOnlyMatch[2]}` : '';
+    return sanitizeBaseName(`Plan KW ${kw}${year}`);
+  }
+
+  // Letzte Absicherung: komplett komprimierte Form für OCR/zerstückelte Texte.
+  // Beispiel: "P l a n   K W  14" -> "plankw14".
+  const compact = normalizedText.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const compactNamedMatch = compact.match(/(?:dienstplan|plan)kw(\d{1,2})(\d{2,4})?/i);
+  if (compactNamedMatch) {
+    const kw = compactNamedMatch[1];
+    const year = compactNamedMatch[2] ? ` ${compactNamedMatch[2]}` : '';
+    return sanitizeBaseName(`Plan KW ${kw}${year}`);
+  }
+
+  const compactKwOnlyMatch = compact.match(/kw(\d{1,2})(\d{2,4})?/i);
+  if (compactKwOnlyMatch) {
+    const kw = compactKwOnlyMatch[1];
+    const year = compactKwOnlyMatch[2] ? ` ${compactKwOnlyMatch[2]}` : '';
     return sanitizeBaseName(`Plan KW ${kw}${year}`);
   }
 
@@ -82,6 +103,37 @@ async function extractPreferredPdfName(bytes: ArrayBuffer): Promise<string | nul
     return sanitizeBaseName(firstLine);
   } catch {
     return null;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+interface ExtractedPdfNaming {
+  detectedPlanKwName: string | null;
+  detectedFallbackName: string | null;
+}
+
+async function extractPdfNaming(bytes: ArrayBuffer): Promise<ExtractedPdfNaming> {
+  const parser = new PDFParse({ data: Buffer.from(bytes) });
+
+  try {
+    const parsedText = await parser.getText();
+    const planKwName = extractPlanKwName(parsedText.text);
+
+    const firstLine = parsedText.text
+      .split(/\r?\n/)
+      .map((line: string) => line.trim())
+      .find((line: string) => line.length > 0);
+
+    return {
+      detectedPlanKwName: planKwName,
+      detectedFallbackName: firstLine ? sanitizeBaseName(firstLine) : null,
+    };
+  } catch {
+    return {
+      detectedPlanKwName: null,
+      detectedFallbackName: null,
+    };
   } finally {
     await parser.destroy();
   }
@@ -157,9 +209,15 @@ export async function POST(request: NextRequest) {
       }
 
       const bytes = await file.arrayBuffer();
-      const firstLineName = await extractPreferredPdfName(bytes);
+      const extractedNames = await extractPdfNaming(bytes);
       const fallbackName = sanitizeBaseName(stripPdfExtension(file.name));
-      const baseName = firstLineName ?? fallbackName;
+
+      // Wenn ein Plan-KW-Muster erkannt wurde, MUSS dieser Name verwendet werden.
+      const baseName =
+        extractedNames.detectedPlanKwName ??
+        extractedNames.detectedFallbackName ??
+        fallbackName;
+
       const filename = await getUniquePdfFilename(baseName);
       const filepath = join(UPLOAD_DIR, filename);
 
@@ -169,7 +227,8 @@ export async function POST(request: NextRequest) {
         name: file.name,
         size: file.size,
         savedAs: filename,
-        usedFirstLine: firstLineName ?? null,
+        detectedName: extractedNames.detectedPlanKwName ?? extractedNames.detectedFallbackName,
+        planKwMatched: Boolean(extractedNames.detectedPlanKwName),
       });
     }
 
