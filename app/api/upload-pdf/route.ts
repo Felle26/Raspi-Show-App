@@ -4,23 +4,24 @@ import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { existsSync, unlinkSync } from "fs";
 import { PDFParse } from "pdf-parse";
-
+import {
+  sanitizeBaseName,
+  stripPdfExtension,
+  extractNamingFromText,
+  type ExtractedPdfNaming,
+} from "@/lib/pdf-naming";
 
 const UPLOAD_DIR = join(process.cwd(), "public/dienstplan-uploads");
 
-function sanitizeBaseName(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\s+/g, " ")
-    .replace(/[.\s]+$/g, "");
+import { pathToFileURL } from "url";
 
-  return cleaned || "Dokument";
-}
-
-function stripPdfExtension(filename: string): string {
-  return filename.replace(/\.pdf$/i, "");
-}
+const workerPath = pathToFileURL(
+  join(
+    process.cwd(),
+    "node_modules/pdf-parse/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
+  )
+).href;
+PDFParse.setWorker(workerPath);
 
 async function getUniquePdfFilename(baseName: string): Promise<string> {
   let candidate = `${baseName}.pdf`;
@@ -34,102 +35,23 @@ async function getUniquePdfFilename(baseName: string): Promise<string> {
   return candidate;
 }
 
-function extractPlanKwName(text: string): string | null {
-  const normalizedText = text
-    .replace(/\u00A0/g, ' ')
-    .replace(/[‐‑‒–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // Unterstützt Varianten wie: Plan KW 14, Plan K.W. 14, Dienstplan K W: 14/2026.
-  const namedMatch = normalizedText.match(
-    /\b(?:plan|dienstplan)\b[\s:;,.\-_/]*k[\s.\-_/]*w[\s:;,.\-_/]*(\d{1,2})(?:[\s:;,.\-_/]*(\d{2,4}))?\b/i
-  );
-  if (namedMatch) {
-    const kw = namedMatch[1];
-    const year = namedMatch[2] ? ` ${namedMatch[2]}` : '';
-    return sanitizeBaseName(`Plan KW ${kw}${year}`);
-  }
-
-  // Fallback: Nur "KW <Nummer>" im Dokument gefunden (inkl. K.W. oder K W).
-  const kwOnlyMatch = normalizedText.match(
-    /\bk[\s.\-_/]*w[\s:;,.\-_/]*(\d{1,2})(?:[\s:;,.\-_/]*(\d{2,4}))?\b/i
-  );
-  if (kwOnlyMatch) {
-    const kw = kwOnlyMatch[1];
-    const year = kwOnlyMatch[2] ? ` ${kwOnlyMatch[2]}` : '';
-    return sanitizeBaseName(`Plan KW ${kw}${year}`);
-  }
-
-  // Letzte Absicherung: komplett komprimierte Form für OCR/zerstückelte Texte.
-  // Beispiel: "P l a n   K W  14" -> "plankw14".
-  const compact = normalizedText.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const compactNamedMatch = compact.match(/(?:dienstplan|plan)kw(\d{1,2})(\d{2,4})?/i);
-  if (compactNamedMatch) {
-    const kw = compactNamedMatch[1];
-    const year = compactNamedMatch[2] ? ` ${compactNamedMatch[2]}` : '';
-    return sanitizeBaseName(`Plan KW ${kw}${year}`);
-  }
-
-  const compactKwOnlyMatch = compact.match(/kw(\d{1,2})(\d{2,4})?/i);
-  if (compactKwOnlyMatch) {
-    const kw = compactKwOnlyMatch[1];
-    const year = compactKwOnlyMatch[2] ? ` ${compactKwOnlyMatch[2]}` : '';
-    return sanitizeBaseName(`Plan KW ${kw}${year}`);
-  }
-
-  return null;
-}
-
-async function extractPreferredPdfName(bytes: ArrayBuffer): Promise<string | null> {
-  const parser = new PDFParse({ data: Buffer.from(bytes) });
-
-  try {
-    const parsedText = await parser.getText();
-    const planKwName = extractPlanKwName(parsedText.text);
-    if (planKwName) {
-      return planKwName;
-    }
-
-    const firstLine = parsedText.text
-      .split(/\r?\n/)
-      .map((line: string) => line.trim())
-      .find((line: string) => line.length > 0);
-
-    if (!firstLine) {
-      return null;
-    }
-
-    return sanitizeBaseName(firstLine);
-  } catch {
-    return null;
-  } finally {
-    await parser.destroy();
-  }
-}
-
-interface ExtractedPdfNaming {
-  detectedPlanKwName: string | null;
-  detectedFallbackName: string | null;
-}
-
 async function extractPdfNaming(bytes: ArrayBuffer): Promise<ExtractedPdfNaming> {
+  console.log("[pdf-naming] workerPath:", workerPath);
+  console.log("[pdf-naming] workerPath exists:", existsSync(workerPath));
+
   const parser = new PDFParse({ data: Buffer.from(bytes) });
 
   try {
+    console.log("[pdf-naming] calling getText()...");
     const parsedText = await parser.getText();
-    const planKwName = extractPlanKwName(parsedText.text);
-
-    const firstLine = parsedText.text
-      .split(/\r?\n/)
-      .map((line: string) => line.trim())
-      .find((line: string) => line.length > 0);
-
-    return {
-      detectedPlanKwName: planKwName,
-      detectedFallbackName: firstLine ? sanitizeBaseName(firstLine) : null,
-    };
-  } catch {
+    console.log("[pdf-naming] raw text length:", parsedText.text.length);
+    console.log("[pdf-naming] raw text (first 500 chars):", JSON.stringify(parsedText.text.slice(0, 500)));
+    console.log("[pdf-naming] pages:", parsedText.pages?.length ?? "N/A");
+    const result = extractNamingFromText(parsedText.text);
+    console.log("[pdf-naming] result:", JSON.stringify(result));
+    return result;
+  } catch (err) {
+    console.error("[pdf-naming] getText() threw:", err);
     return {
       detectedPlanKwName: null,
       detectedFallbackName: null,
