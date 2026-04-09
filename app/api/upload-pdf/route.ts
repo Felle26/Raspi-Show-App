@@ -34,11 +34,42 @@ async function getUniquePdfFilename(baseName: string): Promise<string> {
   return candidate;
 }
 
-async function extractFirstLineFromPdf(bytes: ArrayBuffer): Promise<string | null> {
+function extractPlanKwName(text: string): string | null {
+  const normalizedText = text.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Bevorzugt Muster mit "Plan" oder "Dienstplan".
+  const namedMatch = normalizedText.match(
+    /\b(?:Plan|Dienstplan)\s*KW\s*[:.-]?\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?\b/i
+  );
+  if (namedMatch) {
+    const kw = namedMatch[1];
+    const year = namedMatch[2] ? ` ${namedMatch[2]}` : '';
+    return sanitizeBaseName(`Plan KW ${kw}${year}`);
+  }
+
+  // Fallback: Nur "KW <Nummer>" im Dokument gefunden.
+  const kwOnlyMatch = normalizedText.match(
+    /\bKW\s*[:.-]?\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?\b/i
+  );
+  if (kwOnlyMatch) {
+    const kw = kwOnlyMatch[1];
+    const year = kwOnlyMatch[2] ? ` ${kwOnlyMatch[2]}` : '';
+    return sanitizeBaseName(`Plan KW ${kw}${year}`);
+  }
+
+  return null;
+}
+
+async function extractPreferredPdfName(bytes: ArrayBuffer): Promise<string | null> {
   const parser = new PDFParse({ data: Buffer.from(bytes) });
 
   try {
     const parsedText = await parser.getText();
+    const planKwName = extractPlanKwName(parsedText.text);
+    if (planKwName) {
+      return planKwName;
+    }
+
     const firstLine = parsedText.text
       .split(/\r?\n/)
       .map((line: string) => line.trim())
@@ -126,7 +157,7 @@ export async function POST(request: NextRequest) {
       }
 
       const bytes = await file.arrayBuffer();
-      const firstLineName = await extractFirstLineFromPdf(bytes);
+      const firstLineName = await extractPreferredPdfName(bytes);
       const fallbackName = sanitizeBaseName(stripPdfExtension(file.name));
       const baseName = firstLineName ?? fallbackName;
       const filename = await getUniquePdfFilename(baseName);
