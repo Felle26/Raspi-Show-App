@@ -2,9 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { readdir, stat } from "fs/promises";
 import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
+import { PDFDocument } from "pdf-lib";
 
 const UPLOAD_DIR = join(process.cwd(), "public/dienstplan-uploads");
+
+function sanitizeBaseName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/[.\s]+$/g, "");
+
+  return cleaned || "Dokument";
+}
+
+function stripPdfExtension(filename: string): string {
+  return filename.replace(/\.pdf$/i, "");
+}
+
+async function getUniquePdfFilename(baseName: string): Promise<string> {
+  let candidate = `${baseName}.pdf`;
+  let index = 1;
+
+  while (existsSync(join(UPLOAD_DIR, candidate))) {
+    candidate = `${baseName} (${index}).pdf`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+async function extractPdfTitle(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const title = pdf.getTitle();
+    if (!title) {
+      return null;
+    }
+
+    const cleanedTitle = sanitizeBaseName(title);
+    return cleanedTitle.length > 0 ? cleanedTitle : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET() {
   try {
@@ -21,6 +63,7 @@ export async function GET() {
         return {
           name: filename,
           size: fileStats.size,
+          uploadedAt: fileStats.birthtime.toISOString(),
           modifiedAt: fileStats.mtime.toISOString(),
           url: `/dienstplan-uploads/${encodeURIComponent(filename)}`,
         };
@@ -74,18 +117,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Dateiname sanitizen
-      const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const bytes = await file.arrayBuffer();
+      const metadataTitle = await extractPdfTitle(bytes);
+      const fallbackName = sanitizeBaseName(stripPdfExtension(file.name));
+      const baseName = metadataTitle ?? fallbackName;
+      const filename = await getUniquePdfFilename(baseName);
       const filepath = join(UPLOAD_DIR, filename);
 
-      // Datei als Buffer lesen
-      const bytes = await file.arrayBuffer();
       await writeFile(filepath, Buffer.from(bytes));
 
       uploadedFiles.push({
         name: file.name,
         size: file.size,
         savedAs: filename,
+        usedTitle: metadataTitle ?? null,
       });
     }
 
@@ -98,6 +143,42 @@ export async function POST(request: NextRequest) {
     console.error("Upload-Fehler:", error);
     return NextResponse.json(
       { error: "Fehler beim Speichern der Dateien" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const filename = request.nextUrl.searchParams.get("filename");
+
+    if (!filename) {
+      return NextResponse.json(
+        { error: "Dateiname fehlt" },
+        { status: 400 }
+      );
+    }
+
+    const safeName = filename.replace(/[\\/]/g, "");
+    const filePath = join(UPLOAD_DIR, safeName);
+
+    if (!existsSync(filePath)) {
+      return NextResponse.json(
+        { error: "Datei wurde nicht gefunden" },
+        { status: 404 }
+      );
+    }
+
+    unlinkSync(filePath);
+
+    return NextResponse.json({
+      success: true,
+      message: `${safeName} wurde gelöscht`,
+    });
+  } catch (error) {
+    console.error("Lösch-Fehler:", error);
+    return NextResponse.json(
+      { error: "Datei konnte nicht gelöscht werden" },
       { status: 500 }
     );
   }

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 type UploadedFile = {
   name: string;
   size: number;
+  uploadedAt: string;
   modifiedAt: string;
   url: string;
 };
@@ -15,6 +16,14 @@ export default function PDFUpload() {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [serverFiles, setServerFiles] = useState<UploadedFile[]>([]);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
+
+  const formatDate = (isoDate: string) => {
+    return new Date(isoDate).toLocaleString("de-DE", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  };
 
   const loadServerFiles = async () => {
     setIsLoadingFiles(true);
@@ -44,6 +53,45 @@ export default function PDFUpload() {
   useEffect(() => {
     loadServerFiles();
   }, []);
+
+  const handleDeleteFile = async (filename: string) => {
+    const confirmed = window.confirm(`Datei wirklich löschen?\n${filename}`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingFile(filename);
+    try {
+      const response = await fetch(
+        `/api/upload-pdf?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage({
+          type: "error",
+          text: data.error || "Datei konnte nicht gelöscht werden",
+        });
+        return;
+      }
+
+      setMessage({
+        type: "success",
+        text: data.message || "Datei gelöscht",
+      });
+      await loadServerFiles();
+    } catch {
+      setMessage({
+        type: "error",
+        text: "Datei konnte nicht gelöscht werden",
+      });
+    } finally {
+      setDeletingFile(null);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSelectedFiles(e.target.files);
@@ -137,16 +185,29 @@ export default function PDFUpload() {
             <ul className="space-y-2 max-h-72 overflow-y-auto">
               {serverFiles.map((file) => (
                 <li key={file.name} className="text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 rounded p-2 border border-gray-200 dark:border-gray-700">
-                  <a
-                    href={file.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-blue-700 dark:text-blue-300 hover:underline break-all"
-                  >
-                    {file.name}
-                  </a>
+                  <div className="flex items-start justify-between gap-2">
+                    <a
+                      href={file.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-blue-700 dark:text-blue-300 hover:underline break-all"
+                    >
+                      {file.name}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFile(file.name)}
+                      disabled={deletingFile === file.name}
+                      className="shrink-0 text-xs px-2 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-900/60 disabled:opacity-60"
+                    >
+                      {deletingFile === file.name ? "Lösche..." : "Löschen"}
+                    </button>
+                  </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Upload: {formatDate(file.uploadedAt)}
                   </p>
                 </li>
               ))}
