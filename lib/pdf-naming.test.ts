@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   extractPlanKwName,
   extractNamingFromText,
+  extractEnstelleTrailingText,
   sanitizeBaseName,
   stripPdfExtension,
 } from "./pdf-naming";
@@ -81,9 +82,9 @@ describe("extractNamingFromText", () => {
     const text =
       "nstelle 020 Bäckerei Brot/Brötchen/Ofen\nPlan KW 16 13.04.2026 - 19.04.2026";
     const result = extractNamingFromText(text);
-    expect(result.detectedPlanKwName).toBe("Plan KW 16");
+    expect(result.detectedPlanKwName).toBe("Plan KW 16 Bäckerei Brot_Brötchen_Ofen");
     expect(result.detectedFallbackName).toBe(
-      "nstelle 020 Bäckerei Brot_Brötchen_Ofen"
+      "Bäckerei Brot_Brötchen_Ofen"
     );
   });
 
@@ -97,6 +98,82 @@ describe("extractNamingFromText", () => {
     const result = extractNamingFromText("");
     expect(result.detectedPlanKwName).toBeNull();
     expect(result.detectedFallbackName).toBeNull();
+  });
+});
+
+describe("extractEnstelleTrailingText", () => {
+  it("extracts text after nstelle + digits", () => {
+    const text = "nstelle 020 Bäckerei Brot/Brötchen/Ofen";
+    expect(extractEnstelleTrailingText(text)).toBe(
+      "Bäckerei Brot_Brötchen_Ofen"
+    );
+  });
+
+  it("extracts text after enstelle + digits", () => {
+    const text = "enstelle 103 Küche";
+    expect(extractEnstelleTrailingText(text)).toBe("Küche");
+  });
+
+  it("handles uppercase variant", () => {
+    const text = "ENSTELLE 101 Service";
+    expect(extractEnstelleTrailingText(text)).toBe("Service");
+  });
+
+  it("handles extra spaces between token and digits", () => {
+    const text = "enstelle     007   Vorbereitung";
+    expect(extractEnstelleTrailingText(text)).toBe("Vorbereitung");
+  });
+
+  it("handles ':' separator before digits", () => {
+    const text = "enstelle:020 Küche";
+    expect(extractEnstelleTrailingText(text)).toBe("Küche");
+  });
+
+  it("handles '-' separator around digits", () => {
+    const text = "nstelle - 020 - Bäckerei";
+    expect(extractEnstelleTrailingText(text)).toBe("Bäckerei");
+  });
+
+  it("handles missing space between digits and text", () => {
+    const text = "nstelle 020Bäckerei";
+    expect(extractEnstelleTrailingText(text)).toBe("Bäckerei");
+  });
+
+  it("handles full word 'Kostenstelle'", () => {
+    const text = "Kostenstelle 020 Bäckerei Brot/Brötchen/Ofen";
+    expect(extractEnstelleTrailingText(text)).toBe(
+      "Bäckerei Brot_Brötchen_Ofen"
+    );
+  });
+
+  it("handles full word 'Dienststelle'", () => {
+    const text = "Dienststelle 103 Küche";
+    expect(extractEnstelleTrailingText(text)).toBe("Küche");
+  });
+
+  it("handles multiline input and extracts from the matching line", () => {
+    const text = "Plan KW 16\nenstelle 020 Bäckerei\nSeite 1";
+    expect(extractEnstelleTrailingText(text)).toBe("Bäckerei");
+  });
+
+  it("returns first matching line when multiple enstelle lines exist", () => {
+    const text = "enstelle 010 Küche\nenstelle 020 Bäckerei";
+    expect(extractEnstelleTrailingText(text)).toBe("Küche");
+  });
+
+  it("returns null when digits are missing", () => {
+    const text = "enstelle Küche";
+    expect(extractEnstelleTrailingText(text)).toBeNull();
+  });
+
+  it("returns null when trailing text after digits is missing", () => {
+    const text = "enstelle 123";
+    expect(extractEnstelleTrailingText(text)).toBeNull();
+  });
+
+  it("returns null when no enstelle pattern exists", () => {
+    const text = "Plan KW 16 13.04.2026 - 19.04.2026";
+    expect(extractEnstelleTrailingText(text)).toBeNull();
   });
 });
 

@@ -36,6 +36,8 @@ interface PDFPageCanvasProps {
   onOverlayCanvasReady: (pageNumber: number, canvas: HTMLCanvasElement | null) => void;
   onPageElementReady: (pageNumber: number, element: HTMLDivElement | null) => void;
   onPageRenderError: (message: string | null) => void;
+  editingDrawingId: string | null;
+  editingEnabled: boolean;
 }
 
 function PDFPageCanvas({
@@ -53,6 +55,8 @@ function PDFPageCanvas({
   onOverlayCanvasReady,
   onPageElementReady,
   onPageRenderError,
+  editingDrawingId,
+  editingEnabled,
 }: PDFPageCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -137,7 +141,7 @@ function PDFPageCanvas({
           return;
         }
 
-        for (const drawing of pageDrawings) {
+        for (const drawing of pageDrawings.filter((d) => d.id !== editingDrawingId)) {
           if (isCancelled || renderVersion !== renderVersionRef.current) {
             return;
           }
@@ -190,7 +194,7 @@ function PDFPageCanvas({
     };
   }, [currentTool, onPageRenderError, pageDrawings, pageNumber, pdf, resizeVersion, zoomFactor]);
 
-  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const getPointerPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) {
       return null;
@@ -203,15 +207,16 @@ function PDFPageCanvas({
     };
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas) {
       return;
     }
 
+    overlayCanvas.setPointerCapture(e.pointerId);
     onActivate(pageNumber);
 
-    const pos = getMousePos(e);
+    const pos = getPointerPos(e);
     if (!pos) {
       return;
     }
@@ -257,12 +262,12 @@ function PDFPageCanvas({
     ctx.moveTo(pos.x, pos.y);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawingRef.current || !overlayCanvasRef.current) {
       return;
     }
 
-    const pos = getMousePos(e);
+    const pos = getPointerPos(e);
     if (!pos) {
       return;
     }
@@ -309,11 +314,11 @@ function PDFPageCanvas({
           />
           <canvas
             ref={overlayCanvasRef}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            className="absolute top-0 left-0"
+            onPointerDown={editingEnabled ? startDrawing : undefined}
+            onPointerMove={editingEnabled ? draw : undefined}
+            onPointerUp={editingEnabled ? stopDrawing : undefined}
+            onPointerCancel={editingEnabled ? stopDrawing : undefined}
+            className={`absolute top-0 left-0 touch-none${editingEnabled ? '' : ' pointer-events-none'}`}
           />
         </div>
       </div>
@@ -344,6 +349,59 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
   const [zoomFactor, setZoomFactor] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [resizeVersion, setResizeVersion] = useState(0);
+  const [showLayersPanel, setShowLayersPanel] = useState(false);
+  const [editingDrawingId, setEditingDrawingId] = useState<string | null>(null);
+  const [editingEnabled, setEditingEnabled] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordRequired, setPasswordRequired] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/edit-password')
+      .then((r) => r.json())
+      .then((data) => {
+        setPasswordRequired(data.passwordSet);
+        if (!data.passwordSet) {
+          // Kein Passwort gesetzt – direkt freischalten
+          setEditingEnabled(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleUnlockClick = () => {
+    if (editingEnabled) {
+      setEditingEnabled(false);
+      return;
+    }
+    if (!passwordRequired) {
+      setEditingEnabled(true);
+      return;
+    }
+    setPasswordInput('');
+    setPasswordError('');
+    setShowPasswordModal(true);
+  };
+
+  const handlePasswordSubmit = async () => {
+    try {
+      const res = await fetch(
+        `/api/edit-password?password=${encodeURIComponent(passwordInput)}`
+      );
+      const data = await res.json();
+      if (data.unlocked) {
+        setEditingEnabled(true);
+        setShowPasswordModal(false);
+        setPasswordInput('');
+        setPasswordError('');
+      } else {
+        setPasswordError('Falsches Passwort');
+      }
+    } catch {
+      setPasswordError('Fehler beim Prüfen des Passworts');
+    }
+  };
 
   useEffect(() => {
     const loadPdf = async () => {
@@ -517,6 +575,14 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       }
 
       alert(`Zeichnung auf Seite ${activePage} erfolgreich gespeichert!`);
+      if (editingDrawingId) {
+        await fetch('/api/drawings/delete', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ drawingId: editingDrawingId, pdfName }),
+        });
+        setEditingDrawingId(null);
+      }
       setDrawingsVersion((value) => value + 1);
       if (onDrawingSaved) {
         onDrawingSaved();
@@ -563,21 +629,113 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
     pageElementMapRef.current[pageNumber] = element;
   };
 
+  const handleDeleteDrawing = async (drawing: SavedDrawing) => {
+    try {
+      const response = await fetch('/api/drawings/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drawingId: drawing.id, pdfName }),
+      });
+      if (response.ok) {
+        if (editingDrawingId === drawing.id) {
+          setEditingDrawingId(null);
+          const canvas = overlayCanvasMapRef.current[drawing.page];
+          if (canvas) {
+            canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        }
+        setDrawingsVersion((value) => value + 1);
+      }
+    } catch (err) {
+      setError(`Fehler beim Löschen: ${err}`);
+    }
+  };
+
+  const handleEditDrawing = (drawing: SavedDrawing) => {
+    setActivePage(drawing.page);
+    if (viewMode === 'single') {
+      setCurrentPage(drawing.page);
+    }
+    const loadOntoCanvas = () => {
+      const canvas = overlayCanvasMapRef.current[drawing.page];
+      if (!canvas) {
+        setTimeout(loadOntoCanvas, 100);
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.src = drawing.url;
+    };
+    loadOntoCanvas();
+    setEditingDrawingId(drawing.id);
+    setShowLayersPanel(false);
+  };
+
+  const pageLayerDrawings = savedDrawings.filter((d) => d.page === activePage);
+
   return (
     <div className="flex h-full flex-col bg-slate-100 dark:bg-slate-950">
-      <DrawingToolbar
-        currentColor={currentColor}
-        currentTool={currentTool}
-        textInput={textInput}
-        fontSize={fontSize}
-        onColorChange={setCurrentColor}
-        onToolChange={setCurrentTool}
-        onTextChange={setTextInput}
-        onFontSizeChange={setFontSize}
-        onSave={handleSave}
-        onClear={handleClear}
-        isSaving={isSaving}
-      />
+      {/* Passwort-Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-80 rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+            <h3 className="mb-1 text-lg font-bold text-gray-900 dark:text-white">🔒 Passwort eingeben</h3>
+            <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+              Bitte gib das Passwort ein, um den Ändern-Bereich freizuschalten.
+            </p>
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+              placeholder="Passwort..."
+              autoFocus
+              className="mb-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-slate-800 dark:text-white"
+            />
+            {passwordError && (
+              <p className="mb-3 text-sm font-semibold text-red-600 dark:text-red-400">{passwordError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handlePasswordSubmit}
+                className="flex-1 rounded-lg bg-blue-500 py-2 font-semibold text-white transition-colors hover:bg-blue-600"
+              >
+                Entsperren
+              </button>
+              <button
+                onClick={() => { setShowPasswordModal(false); setPasswordInput(''); setPasswordError(''); }}
+                className="flex-1 rounded-lg bg-gray-200 py-2 font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ändern-Toolbar (nur sichtbar wenn entsperrt) */}
+      {editingEnabled && (
+        <DrawingToolbar
+          currentColor={currentColor}
+          currentTool={currentTool}
+          textInput={textInput}
+          fontSize={fontSize}
+          onColorChange={setCurrentColor}
+          onToolChange={setCurrentTool}
+          onTextChange={setTextInput}
+          onFontSizeChange={setFontSize}
+          onSave={handleSave}
+          onClear={handleClear}
+          isSaving={isSaving}
+          showLayersPanel={showLayersPanel}
+          onLayersToggle={() => setShowLayersPanel((v) => !v)}
+        />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 bg-white px-4 py-3 dark:border-gray-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-2">
@@ -608,6 +766,17 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={handleUnlockClick}
+            title={editingEnabled ? 'Ändern-Bereich sperren' : 'Ändern-Bereich entsperren'}
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition-colors ${
+              editingEnabled
+                ? 'bg-green-500 hover:bg-green-600 text-white'
+                : 'bg-gray-400 hover:bg-gray-500 text-white'
+            }`}
+          >
+            {editingEnabled ? '🔓' : '🔒'}
+          </button>
+          <button
             onClick={handleZoomOut}
             aria-label="Zoom verkleinern"
             title="Zoom verkleinern"
@@ -632,7 +801,8 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
         </div>
       )}
 
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto bg-slate-200 px-2 py-4 dark:bg-slate-800 sm:px-4">
+      <div className="relative flex-1 min-h-0">
+        <div ref={scrollContainerRef} className="h-full overflow-auto bg-slate-200 px-2 py-4 dark:bg-slate-800 sm:px-4">
         {pdf ? (
           <div className="mx-auto flex w-full max-w-full flex-col gap-8">
             {displayedPages.map((pageNumber) => (
@@ -652,11 +822,94 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
                 onOverlayCanvasReady={handleOverlayCanvasReady}
                 onPageElementReady={handlePageElementReady}
                 onPageRenderError={setError}
+                editingDrawingId={editingDrawingId}
+                editingEnabled={editingEnabled}
               />
             ))}
           </div>
         ) : (
           <div className="text-gray-500 dark:text-gray-400">PDF wird geladen...</div>
+        )}
+        </div>
+
+        {/* Scroll-Buttons */}
+        <button
+          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: -350, behavior: 'smooth' })}
+          aria-label="Nach oben scrollen"
+          className="absolute right-4 top-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-black/40 text-2xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
+        >
+          ↑
+        </button>
+        <button
+          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: 350, behavior: 'smooth' })}
+          aria-label="Nach unten scrollen"
+          className="absolute right-4 bottom-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-black/40 text-2xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
+        >
+          ↓
+        </button>
+
+        {/* Ebenen-Panel */}
+        {showLayersPanel && (
+          <div className="absolute left-0 top-0 bottom-0 z-20 flex w-64 flex-col overflow-hidden border-r border-gray-200 bg-white/95 shadow-xl backdrop-blur-sm dark:border-gray-700 dark:bg-slate-900/95">
+            <div className="flex items-center justify-between border-b border-gray-200 p-3 dark:border-gray-700">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                Ebenen – Seite {activePage}
+              </h3>
+              <button
+                onClick={() => setShowLayersPanel(false)}
+                className="text-lg leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                aria-label="Panel schließen"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {pageLayerDrawings.length === 0 ? (
+                <p className="p-3 text-sm text-gray-500 dark:text-gray-400">
+                  Keine Zeichnungen auf Seite {activePage}.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {pageLayerDrawings.map((drawing) => (
+                    <div
+                      key={drawing.id}
+                      className={`rounded-lg border p-2 ${
+                        editingDrawingId === drawing.id
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <img
+                        src={drawing.url}
+                        alt="Zeichnung"
+                        className="w-full rounded border border-gray-200 dark:border-gray-600"
+                      />
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {new Date(drawing.createdAt).toLocaleString('de-DE')}
+                        {editingDrawingId === drawing.id && (
+                          <span className="ml-1 font-semibold text-blue-500"> (wird bearbeitet)</span>
+                        )}
+                      </p>
+                      <div className="mt-2 flex gap-1">
+                        <button
+                          onClick={() => handleEditDrawing(drawing)}
+                          className="flex-1 rounded px-2 py-1 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-colors"
+                        >
+                          ✏️ Bearbeiten
+                        </button>
+                        <button
+                          onClick={() => handleDeleteDrawing(drawing)}
+                          className="flex-1 rounded px-2 py-1 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white transition-colors"
+                        >
+                          🗑️ Löschen
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 

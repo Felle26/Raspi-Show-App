@@ -12,6 +12,39 @@ export function stripPdfExtension(filename: string): string {
   return filename.replace(/\.pdf$/i, "");
 }
 
+/**
+ * Extracts text after an "enstelle <digits>" (or OCR "nstelle <digits>") prefix.
+ * Example: "nstelle 020 Bäckerei Brot" -> "Bäckerei Brot".
+ */
+export function extractEnstelleTrailingText(text: string): string | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line: string) => line.trim())
+    .filter((line: string) => line.length > 0);
+
+  for (const line of lines) {
+    // Accept OCR variants/separators like:
+    // "nstelle 020 Bäckerei", "enstelle:020 Küche", "nstelle 020Bäckerei"
+    const tokenMatch = line.match(/\w*stelle\b\s*[:;,.\-]?\s*(.+)/i);
+    if (!tokenMatch || !tokenMatch[1]) {
+      continue;
+    }
+
+    const rest = tokenMatch[1].trim();
+    const numberMatch = rest.match(/^(\d+)(.*)$/);
+    if (!numberMatch) {
+      continue;
+    }
+
+    const trailingText = numberMatch[2].replace(/^\s*[:;,.\-]?\s*/, "").trim();
+    if (trailingText.length > 0) {
+      return sanitizeBaseName(trailingText);
+    }
+  }
+
+  return null;
+}
+
 function isValidWeek(n: number): boolean {
   return n >= 1 && n <= 53;
 }
@@ -100,6 +133,12 @@ export interface ExtractedPdfNaming {
 
 export function extractNamingFromText(text: string): ExtractedPdfNaming {
   const planKwName = extractPlanKwName(text);
+  const enstelleTrailingText =
+    extractEnstelleTrailingText(text) ?? "Kuchen Feinback Blätter-Punder";
+  const combinedPlanKwName =
+    planKwName && enstelleTrailingText
+      ? sanitizeBaseName(`${planKwName} ${enstelleTrailingText}`)
+      : planKwName;
 
   const firstLine = text
     .split(/\r?\n/)
@@ -107,7 +146,8 @@ export function extractNamingFromText(text: string): ExtractedPdfNaming {
     .find((line: string) => line.length > 0);
 
   return {
-    detectedPlanKwName: planKwName,
-    detectedFallbackName: firstLine ? sanitizeBaseName(firstLine) : null,
+    detectedPlanKwName: combinedPlanKwName,
+    detectedFallbackName:
+      enstelleTrailingText ?? (firstLine ? sanitizeBaseName(firstLine) : null),
   };
 }

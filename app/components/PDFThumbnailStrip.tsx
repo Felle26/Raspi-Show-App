@@ -31,10 +31,10 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
 
-        // Fit in the strip tile size (w-20 / h-28).
+        // Fit in the compact strip tile size.
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 96;
-        const targetHeight = 136;
+        const targetWidth = 40;
+        const targetHeight = 56;
         const scale = Math.min(targetWidth / baseViewport.width, targetHeight / baseViewport.height);
         const viewport = page.getViewport({ scale });
 
@@ -109,7 +109,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-20 bg-gray-100 dark:bg-slate-800">
+      <div className="flex items-center justify-center h-14 bg-gray-100 dark:bg-slate-800">
         <span className="text-sm text-gray-600 dark:text-gray-300">Lädt...</span>
       </div>
     );
@@ -117,7 +117,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-20 bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100">
+      <div className="flex items-center justify-center h-14 bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100">
         {error}
       </div>
     );
@@ -125,15 +125,15 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
 
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center h-20 bg-gray-100 dark:bg-slate-800">
+      <div className="flex items-center justify-center h-14 bg-gray-100 dark:bg-slate-800">
         <span className="text-sm text-gray-600 dark:text-gray-300">Keine PDFs gefunden</span>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-slate-900 border-t border-gray-300 dark:border-gray-700 px-3 py-3">
-      <div className="flex gap-2 overflow-x-auto px-1 py-1">
+    <div className="bg-white dark:bg-slate-900 border-t border-gray-300 dark:border-gray-700 px-2 py-2">
+      <div className="flex gap-2 overflow-x-auto px-1 py-0.5">
         {files.map((file) => (
           <button
             key={file.name}
@@ -141,26 +141,28 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
               onPDFSelect(file.name, `/dienstplan-uploads/${encodeURIComponent(file.name)}`)
             }
             title={file.name}
-            className={`shrink-0 cursor-pointer transition-transform hover:scale-105 flex flex-col items-center gap-1 w-24 ${
-              selectedPdfName === file.name ? 'ring-2 ring-blue-500' : ''
+            className={`shrink-0 cursor-pointer transition-colors flex items-center gap-2 rounded-md border px-2 py-1 h-16 min-w-max ${
+              selectedPdfName === file.name
+                ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-slate-800'
             }`}
           >
             {/* Thumbnail oder Placeholder */}
             {thumbnails[file.name] ? (
-              <div className="relative w-24 h-34 rounded-md overflow-hidden border-1.5 border-gray-300 dark:border-gray-600">
+              <div className="relative w-10 h-14 rounded-sm overflow-hidden border border-gray-300 dark:border-gray-600 bg-white">
                 <img
                   src={thumbnails[file.name]}
                   alt={file.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               </div>
             ) : (
-              <div className="w-24 h-34 rounded-md border-1.5 border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-slate-700 flex items-center justify-center">
-                <span className="text-lg">📄</span>
+              <div className="w-10 h-14 rounded-sm border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-slate-700 flex items-center justify-center">
+                <span className="text-sm">📄</span>
               </div>
             )}
 
-            <span className="w-full px-1 text-center text-[10px] leading-tight text-gray-800 dark:text-gray-200 truncate">
+            <span className="text-left text-xs leading-snug text-gray-800 dark:text-gray-200 whitespace-nowrap">
               {file.name}
             </span>
           </button>

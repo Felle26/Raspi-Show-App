@@ -28,6 +28,59 @@ export default function AdminPage() {
   const [deletingDrawing, setDeletingDrawing] = useState<string | null>(null);
   const [deletingPdf, setDeletingPdf] = useState<string | null>(null);
   const [selectedPdfForPreview, setSelectedPdfForPreview] = useState<string | null>(null);
+  const [editPassword, setEditPassword] = useState('');
+  const [isPasswordSet, setIsPasswordSet] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  const loadPasswordStatus = async () => {
+    try {
+      const res = await fetch('/api/edit-password');
+      if (res.ok) {
+        const data = await res.json();
+        setIsPasswordSet(data.passwordSet);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSavePassword = async () => {
+    setPasswordStatus('saving');
+    try {
+      const res = await fetch('/api/edit-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: editPassword }),
+      });
+      if (!res.ok) throw new Error();
+      setIsPasswordSet(!!editPassword);
+      setEditPassword('');
+      setPasswordStatus('saved');
+      setTimeout(() => setPasswordStatus('idle'), 2000);
+    } catch {
+      setPasswordStatus('error');
+      setTimeout(() => setPasswordStatus('idle'), 2000);
+    }
+  };
+
+  const handleRemovePassword = async () => {
+    if (!window.confirm('Passwort wirklich entfernen? Dann ist der Ändern-Bereich ohne Passwort zugänglich.')) return;
+    setPasswordStatus('saving');
+    try {
+      const res = await fetch('/api/edit-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: '' }),
+      });
+      if (!res.ok) throw new Error();
+      setIsPasswordSet(false);
+      setPasswordStatus('saved');
+      setTimeout(() => setPasswordStatus('idle'), 2000);
+    } catch {
+      setPasswordStatus('error');
+      setTimeout(() => setPasswordStatus('idle'), 2000);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -67,6 +120,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadData();
+    loadPasswordStatus();
   }, []);
 
   const handleDeleteDrawing = async (drawingId: string, pdfName: string) => {
@@ -254,6 +308,44 @@ export default function AdminPage() {
               </div>
             )}
           </section>
+
+          {/* Passwort-Sektion */}
+          <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+            🔒 Ändern-Bereich Passwort
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            {isPasswordSet
+              ? 'Ein Passwort ist gesetzt. Der Ändern-Bereich in der Show-Ansicht ist geschützt.'
+              : 'Kein Passwort gesetzt – der Ändern-Bereich ist frei zugänglich.'}
+          </p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <input
+              type="password"
+              placeholder="Neues Passwort..."
+              value={editPassword}
+              onChange={(e) => setEditPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSavePassword()}
+              className="flex-1 min-w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+            />
+            <button
+              onClick={handleSavePassword}
+              disabled={passwordStatus === 'saving' || !editPassword}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+            >
+              {passwordStatus === 'saving' ? 'Speichert...' : passwordStatus === 'saved' ? '✓ Gespeichert' : passwordStatus === 'error' ? '✗ Fehler' : '💾 Passwort speichern'}
+            </button>
+            {isPasswordSet && (
+              <button
+                onClick={handleRemovePassword}
+                disabled={passwordStatus === 'saving'}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+              >
+                🔓 Passwort entfernen
+              </button>
+            )}
+          </div>
+        </section>
         </div>
 
         {/* Right Panel: PDF Preview with Layers */}
