@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readFile } from "fs/promises";
 import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { existsSync, unlinkSync } from "fs";
@@ -12,6 +12,25 @@ import {
 } from "@/lib/pdf-naming";
 
 const UPLOAD_DIR = join(process.cwd(), "public/dienstplan-uploads");
+const DATA_DIR = join(process.cwd(), "data");
+const CONFIG_FILE = join(DATA_DIR, "config.json");
+
+async function writeLastUploadTimestamp() {
+  try {
+    let config: Record<string, string> = {};
+    try {
+      const content = await readFile(CONFIG_FILE, "utf-8");
+      config = JSON.parse(content);
+    } catch {
+      // Config existiert noch nicht
+    }
+    config.lastChangedAt = new Date().toISOString();
+    await mkdir(DATA_DIR, { recursive: true });
+    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Fehler beim Schreiben des Upload-Timestamps:", err);
+  }
+}
 
 import { pathToFileURL } from "url";
 
@@ -144,6 +163,8 @@ export async function POST(request: NextRequest) {
       const filepath = join(UPLOAD_DIR, filename);
 
       await writeFile(filepath, Buffer.from(bytes));
+
+      await writeLastUploadTimestamp();
 
       uploadedFiles.push({
         name: file.name,

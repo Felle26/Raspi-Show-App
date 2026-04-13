@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { DragEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type UploadedFile = {
@@ -24,13 +24,15 @@ interface PDFUploadProps {
 
 export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
   const router = useRouter();
+  const lastChangedAtRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
   const [uploadResults, setUploadResults] = useState<UploadResultFile[]>([]);
-  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [serverFiles, setServerFiles] = useState<UploadedFile[]>([]);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const formatDate = (isoDate: string) => {
     return new Date(isoDate).toLocaleString("de-DE", {
@@ -66,6 +68,43 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
 
   useEffect(() => {
     loadServerFiles();
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    fetch("/api/upload-timestamp")
+      .then((response) => response.json())
+      .then((data) => {
+        if (!ignore) {
+          lastChangedAtRef.current = data.lastChangedAt ?? null;
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+
+    const intervalId = window.setInterval(() => {
+      fetch("/api/upload-timestamp")
+        .then((response) => response.json())
+        .then((data) => {
+          const nextTimestamp = data.lastChangedAt ?? null;
+          if (!nextTimestamp || nextTimestamp === lastChangedAtRef.current || ignore) {
+            return;
+          }
+
+          lastChangedAtRef.current = nextTimestamp;
+          loadServerFiles();
+        })
+        .catch(() => {
+          // ignore
+        });
+    }, 5000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const handleDeleteFile = async (filename: string) => {
@@ -108,16 +147,8 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedFiles(e.target.files);
-    setMessage({ type: "", text: "" });
-    setUploadResults([]);
-  };
-
-  const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    if (!selectedFiles || selectedFiles.length === 0) {
+  const uploadFiles = async (filesToUpload: File[]) => {
+    if (filesToUpload.length === 0) {
       setMessage({ type: "error", text: "Bitte wähle mindestens eine PDF-Datei" });
       return;
     }
@@ -125,11 +156,8 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
     setIsLoading(true);
     const formData = new FormData();
 
-    // Alle Dateien hinzufügen
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
+    for (const file of filesToUpload) {
 
-      // Nur PDF-Dateien erlauben
       if (file.type !== "application/pdf") {
         setMessage({
           type: "error",
@@ -161,14 +189,10 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
         setUploadResults(resultFiles);
         setMessage({
           type: "success",
-          text: `${selectedFiles.length} Datei(en) erfolgreich hochgeladen!`,
+          text: `${filesToUpload.length} Datei(en) erfolgreich hochgeladen!`,
         });
-        setSelectedFiles(null);
-        // File Input zurücksetzen
-        const input = document.getElementById("pdfInput") as HTMLInputElement;
-        if (input) input.value = "";
+        setSelectedFiles([]);
         await loadServerFiles();
-        // Callback aufrufen
         if (onUploadComplete) {
           onUploadComplete();
         }
@@ -183,6 +207,60 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+
+    const droppedFiles = Array.from(event.dataTransfer.files).filter(
+      (file) => file.type === "application/pdf"
+    );
+
+    setMessage({ type: "", text: "" });
+    setUploadResults([]);
+    setSelectedFiles(droppedFiles);
+
+    if (droppedFiles.length === 0) {
+      setMessage({
+        type: "error",
+        text: "Es wurden keine PDF-Dateien abgelegt.",
+      });
+      return;
+    }
+
+    await uploadFiles(droppedFiles);
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const pickedFiles = Array.from(event.target.files ?? []).filter(
+      (file) => file.type === "application/pdf"
+    );
+
+    setMessage({ type: "", text: "" });
+    setUploadResults([]);
+    setSelectedFiles(pickedFiles);
+
+    if (pickedFiles.length === 0) {
+      setMessage({
+        type: "error",
+        text: "Es wurden keine PDF-Dateien ausgewählt.",
+      });
+      return;
+    }
+
+    await uploadFiles(pickedFiles);
+    event.target.value = "";
   };
 
   return (
@@ -243,37 +321,51 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
           )}
         </aside>
 
-        <form onSubmit={handleUpload} className="lg:col-span-2 space-y-4">
-          <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center hover:border-gray-400 dark:hover:border-gray-600 transition-colors cursor-pointer">
-            <input
-              id="pdfInput"
-              type="file"
-              multiple
-              accept=".pdf"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <label htmlFor="pdfInput" className="cursor-pointer">
-              <div className="space-y-2">
-                <div className="text-3xl">📁</div>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Klick zum Auswählen oder ziehe PDF-Dateien hierher
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-500">
-                  Du kannst mehrere PDFs gleichzeitig auswählen
-                </p>
-              </div>
-            </label>
+        <div className="lg:col-span-2 space-y-4">
+          <input
+            id="pdfInput"
+            type="file"
+            multiple
+            accept=".pdf,application/pdf"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <div
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+              isDragOver
+                ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/20"
+                : "border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+            }`}
+          >
+            <div className="space-y-2">
+              <div className="text-4xl">📁</div>
+              <p className="text-gray-700 dark:text-gray-300">
+                Ziehe PDF-Dateien hier hinein
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Oder wähle sie per Klick aus. Der Upload startet automatisch.
+              </p>
+              <label
+                htmlFor="pdfInput"
+                className="inline-flex cursor-pointer rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                Dateien auswählen
+              </label>
+            </div>
           </div>
 
           {/* Ausgewählte Dateien anzeigen */}
-          {selectedFiles && selectedFiles.length > 0 && (
+          {selectedFiles.length > 0 && (
             <div className="bg-blue-50 dark:bg-blue-900/30 rounded p-4">
               <p className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">
                 Ausgewählte Dateien ({selectedFiles.length}):
               </p>
               <ul className="space-y-1">
-                {Array.from(selectedFiles).map((file, idx) => (
+                {selectedFiles.map((file, idx) => (
                   <li key={idx} className="text-sm text-blue-800 dark:text-blue-300">
                     ✓ {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                   </li>
@@ -321,15 +413,12 @@ export default function PDFUpload({ onUploadComplete }: PDFUploadProps) {
             </div>
           )}
 
-          {/* Upload Button */}
-          <button
-            type="submit"
-            disabled={isLoading || !selectedFiles || selectedFiles.length === 0}
-            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
-          >
-            {isLoading ? "Wird hochgeladen..." : "Hochladen"}
-          </button>
-        </form>
+          {isLoading && (
+            <div className="w-full rounded-lg bg-blue-600 px-4 py-2 text-center font-semibold text-white">
+              Wird hochgeladen...
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

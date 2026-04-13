@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { unlink, readdir, rmdir } from 'fs/promises';
+import { unlink, readdir, rmdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+
+const DATA_DIR = join(process.cwd(), 'data');
+const CONFIG_FILE = join(DATA_DIR, 'config.json');
+
+async function writeLastChangedTimestamp() {
+  try {
+    let config: Record<string, string> = {};
+    try {
+      const content = await readFile(CONFIG_FILE, 'utf-8');
+      config = JSON.parse(content);
+    } catch {
+      // Config existiert noch nicht
+    }
+    config.lastChangedAt = new Date().toISOString();
+    await mkdir(DATA_DIR, { recursive: true });
+    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Fehler beim Schreiben des Timestamps:', err);
+  }
+}
 
 const UPLOAD_DIR = join(process.cwd(), 'public/dienstplan-uploads');
 const DRAWINGS_DIR = join(process.cwd(), 'public/dienstplan-drawings');
@@ -53,6 +73,8 @@ export async function DELETE(request: NextRequest) {
     // Lösche zugehörige Zeichnungen
     const drawingsDirForPdf = join(DRAWINGS_DIR, sanitizePath(fileName));
     await deleteDirectoryContents(drawingsDirForPdf);
+
+    await writeLastChangedTimestamp();
 
     return NextResponse.json({ success: true });
   } catch (error) {

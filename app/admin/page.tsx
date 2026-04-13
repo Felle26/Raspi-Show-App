@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import PDFUpload from '@/app/components/PDFUpload';
@@ -22,6 +22,7 @@ interface PDFFile {
 
 export default function AdminPage() {
   const router = useRouter();
+  const lastChangedAtRef = useRef<string | null>(null);
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [drawings, setDrawings] = useState<Record<string, Drawing[]>>({});
   const [loading, setLoading] = useState(true);
@@ -123,6 +124,44 @@ export default function AdminPage() {
     loadPasswordStatus();
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+
+    fetch('/api/upload-timestamp')
+      .then((response) => response.json())
+      .then((data) => {
+        if (!ignore) {
+          lastChangedAtRef.current = data.lastChangedAt ?? null;
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+
+    const intervalId = window.setInterval(() => {
+      fetch('/api/upload-timestamp')
+        .then((response) => response.json())
+        .then((data) => {
+          const nextTimestamp = data.lastChangedAt ?? null;
+          if (!nextTimestamp || nextTimestamp === lastChangedAtRef.current || ignore) {
+            return;
+          }
+
+          lastChangedAtRef.current = nextTimestamp;
+          loadData();
+          loadPasswordStatus();
+        })
+        .catch(() => {
+          // ignore
+        });
+    }, 5000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const handleDeleteDrawing = async (drawingId: string, pdfName: string) => {
     if (!window.confirm('Zeichnung wirklich löschen?')) return;
 
@@ -168,6 +207,8 @@ export default function AdminPage() {
         delete newDrawings[fileName];
         return newDrawings;
       });
+
+      setSelectedPdfForPreview((prev) => (prev === fileName ? null : prev));
 
       alert('PDF gelöscht');
       router.refresh();

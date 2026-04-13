@@ -13,13 +13,16 @@ interface PDFFile {
 interface PDFThumbnailStripProps {
   onPDFSelect: (pdfName: string, pdfUrl: string) => void;
   selectedPdfName?: string;
+  onNewFilesDetected?: () => void;
 }
 
-export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnailStripProps) {
+export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDetected }: PDFThumbnailStripProps) {
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const knownFileNamesRef = React.useRef<Set<string> | null>(null);
+  const lastUploadAtRef = React.useRef<string | null>(null);
 
   // Laden der Dateien
   useEffect(() => {
@@ -71,6 +74,18 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
 
         setFiles(pdfFiles);
 
+        // Merke initiale Dateinamen; beim erneuten Laden auf neue prüfen
+        const names = new Set(pdfFiles.map((f: PDFFile) => f.name));
+        if (knownFileNamesRef.current === null) {
+          knownFileNamesRef.current = names;
+        } else {
+          const hasNew = [...names].some((n) => !knownFileNamesRef.current!.has(n));
+          if (hasNew) {
+            knownFileNamesRef.current = names;
+            if (!ignore && onNewFilesDetected) onNewFilesDetected();
+          }
+        }
+
         // Lade Thumbnails
         if (pdfFiles.length > 0) {
           const thumbs: Record<string, string> = {};
@@ -102,8 +117,29 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName }: PDFThumbnail
 
     loadFiles();
 
+    // Initialen Timestamp merken
+    fetch('/api/upload-timestamp')
+      .then((r) => r.json())
+      .then((data) => { lastUploadAtRef.current = data.lastChangedAt ?? null; })
+      .catch(() => {});
+
+    // Alle 5 Sekunden prüfen ob sich die Dateiliste geändert hat
+    const intervalId = setInterval(() => {
+      fetch('/api/upload-timestamp')
+        .then((r) => r.json())
+        .then((data) => {
+          const ts: string | null = data.lastChangedAt ?? null;
+          if (ts && ts !== lastUploadAtRef.current) {
+            lastUploadAtRef.current = ts;
+            if (onNewFilesDetected) onNewFilesDetected();
+          }
+        })
+        .catch(() => {});
+    }, 5_000);
+
     return () => {
       ignore = true;
+      clearInterval(intervalId);
     };
   }, []);
 
