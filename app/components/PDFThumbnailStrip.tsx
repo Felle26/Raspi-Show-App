@@ -68,14 +68,14 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
         if (!response.ok) throw new Error('Fehler beim Laden der Dateien');
 
         const data = await response.json();
-        const pdfFiles = Array.isArray(data.files)
+        const pdfFiles = (Array.isArray(data.files)
           ? data.files.filter((f: PDFFile) => f.name.toLowerCase().endsWith('.pdf'))
-          : [];
+          : []) as PDFFile[];
 
         setFiles(pdfFiles);
 
         // Merke initiale Dateinamen; beim erneuten Laden auf neue prüfen
-        const names = new Set(pdfFiles.map((f: PDFFile) => f.name));
+        const names = new Set<string>(pdfFiles.map((f: PDFFile) => f.name));
         if (knownFileNamesRef.current === null) {
           knownFileNamesRef.current = names;
         } else {
