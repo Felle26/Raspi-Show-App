@@ -3,10 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
+GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 interface PDFFile {
   name: string;
