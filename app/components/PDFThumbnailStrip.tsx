@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import * as PDFJS from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface PDFFile {
   name: string;
@@ -30,7 +30,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
 
     const createPdfThumbnail = async (pdfUrl: string): Promise<string | null> => {
       try {
-        const loadingTask = PDFJS.getDocument(pdfUrl);
+        const loadingTask = getDocument(pdfUrl);
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
 

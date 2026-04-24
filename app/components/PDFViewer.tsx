@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import * as PDFJS from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import { DrawingColor, DrawingTool, DrawingToolbar } from './DrawingToolbar';
 
-PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface PDFViewerProps {
   pdfUrl: string;
@@ -407,7 +407,7 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
     const loadPdf = async () => {
       try {
         setError(null);
-        const pdfDoc = await PDFJS.getDocument(pdfUrl).promise;
+        const pdfDoc = await getDocument(pdfUrl).promise;
         setPdf(pdfDoc);
         setTotalPages(pdfDoc.numPages);
         setCurrentPage(1);
