@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerPort) {
+  GlobalWorkerOptions.workerPort = new Worker('/pdf.worker.min.js');
+}
 
 interface PDFFile {
   name: string;
