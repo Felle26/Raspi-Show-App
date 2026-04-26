@@ -24,6 +24,19 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
   const knownFileNamesRef = React.useRef<Set<string> | null>(null);
   const lastUploadAtRef = React.useRef<string | null>(null);
 
+  useEffect(() => {
+    if (files.length === 0) {
+      return;
+    }
+
+    if (selectedPdfName && files.some((file) => file.name === selectedPdfName)) {
+      return;
+    }
+
+    const firstFile = files[0];
+    onPDFSelect(firstFile.name, `/dienstplan-uploads/${encodeURIComponent(firstFile.name)}`);
+  }, [files, onPDFSelect, selectedPdfName]);
+
   // Laden der Dateien
   useEffect(() => {
     let ignore = false;

@@ -94,6 +94,19 @@ describe("extractNamingFromText", () => {
     expect(result.detectedFallbackName).toBe("Bäckerei Hauptstraße");
   });
 
+  it("keeps plain KW name when no enstelle text is present", () => {
+    const result = extractNamingFromText("Plan KW 17 21.04.2026 - 27.04.2026");
+    expect(result.detectedPlanKwName).toBe("Plan KW 17");
+  });
+
+  it("combines KW with Küche when enstelle text is present", () => {
+    const text =
+      "enstelle 103 Küche\nPlan KW 17 21.04.2026 - 27.04.2026";
+    const result = extractNamingFromText(text);
+    expect(result.detectedPlanKwName).toBe("Plan KW 17 Küche");
+    expect(result.detectedFallbackName).toBe("Küche");
+  });
+
   it("returns nulls for empty text", () => {
     const result = extractNamingFromText("");
     expect(result.detectedPlanKwName).toBeNull();

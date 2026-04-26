@@ -133,8 +133,7 @@ export interface ExtractedPdfNaming {
 
 export function extractNamingFromText(text: string): ExtractedPdfNaming {
   const planKwName = extractPlanKwName(text);
-  const enstelleTrailingText =
-    extractEnstelleTrailingText(text) ?? "Kuchen Feinback Blätter-Punder";
+  const enstelleTrailingText = extractEnstelleTrailingText(text);
   const combinedPlanKwName =
     planKwName && enstelleTrailingText
       ? sanitizeBaseName(`${planKwName} ${enstelleTrailingText}`)
