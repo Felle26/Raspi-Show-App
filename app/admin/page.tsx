@@ -393,7 +393,7 @@ export default function AdminPage() {
         {selectedPdfForPreview && (
           <div className="flex-1 bg-white dark:bg-slate-900 rounded-lg shadow-lg overflow-hidden flex flex-col border-2 border-blue-500 dark:border-blue-600">
             <PDFPreviewWithLayers
-              pdfUrl={`/dienstplan-uploads/${encodeURIComponent(selectedPdfForPreview)}`}
+              pdfUrl={`/api/files/${encodeURIComponent(selectedPdfForPreview)}`}
               pdfName={selectedPdfForPreview}
               drawings={drawings[selectedPdfForPreview] || []}
             />

@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerPort) {
-  GlobalWorkerOptions.workerPort = new Worker('/pdf.worker.min.js');
+if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) {
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 }
 
 interface PDFFile {
@@ -93,7 +93,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
           const thumbs: Record<string, string> = {};
           for (const file of pdfFiles) {
             try {
-              const pdfUrl = `/dienstplan-uploads/${encodeURIComponent(file.name)}`;
+              const pdfUrl = `/api/files/${encodeURIComponent(file.name)}`;
               const thumbnail = await createPdfThumbnail(pdfUrl);
               if (thumbnail) {
                 thumbs[file.name] = thumbnail;
@@ -176,7 +176,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
           <button
             key={file.name}
             onClick={() =>
-              onPDFSelect(file.name, `/dienstplan-uploads/${encodeURIComponent(file.name)}`)
+              onPDFSelect(file.name, `/api/files/${encodeURIComponent(file.name)}`)
             }
             title={file.name}
             className={`shrink-0 cursor-pointer transition-colors flex items-center gap-2 rounded-md border px-2 py-1 h-16 min-w-max ${

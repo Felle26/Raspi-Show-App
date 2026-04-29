@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir, readFile } from "fs/promises";
-import { readdir, stat } from "fs/promises";
+import { writeFile, mkdir, readFile, readdir, stat, unlink } from "fs/promises";
 import { join } from "path";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync } from "fs";
 import { PDFParse } from "pdf-parse";
 import {
   sanitizeBaseName,
@@ -11,7 +10,7 @@ import {
   type ExtractedPdfNaming,
 } from "@/lib/pdf-naming";
 
-const UPLOAD_DIR = join(process.cwd(), "public/dienstplan-uploads");
+const UPLOAD_DIR = join(process.cwd(), "storage/uploads");
 const DATA_DIR = join(process.cwd(), "data");
 const CONFIG_FILE = join(DATA_DIR, "config.json");
 
@@ -97,7 +96,7 @@ export async function GET() {
           size: fileStats.size,
           uploadedAt: fileStats.birthtime.toISOString(),
           modifiedAt: fileStats.mtime.toISOString(),
-          url: `/dienstplan-uploads/${encodeURIComponent(filename)}`,
+          url: `/api/files/${encodeURIComponent(filename)}`,
         };
       })
     );
@@ -162,7 +161,8 @@ export async function POST(request: NextRequest) {
       const filename = await getUniquePdfFilename(baseName);
       const filepath = join(UPLOAD_DIR, filename);
 
-      await writeFile(filepath, Buffer.from(bytes));
+      const fileBuffer = Buffer.from(bytes);
+      await writeFile(filepath, fileBuffer);
 
       await writeLastUploadTimestamp();
 
@@ -203,6 +203,13 @@ export async function DELETE(request: NextRequest) {
     const safeName = filename.replace(/[\\/]/g, "");
     const filePath = join(UPLOAD_DIR, safeName);
 
+    if (!filePath.startsWith(UPLOAD_DIR)) {
+      return NextResponse.json(
+        { error: "Ungültiger Pfad" },
+        { status: 400 }
+      );
+    }
+
     if (!existsSync(filePath)) {
       return NextResponse.json(
         { error: "Datei wurde nicht gefunden" },
@@ -210,7 +217,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    unlinkSync(filePath);
+    await unlink(filePath);
+
+    await writeLastUploadTimestamp();
 
     return NextResponse.json({
       success: true,

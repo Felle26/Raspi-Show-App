@@ -3,7 +3,7 @@ import { unlink, readdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
-const DRAWINGS_DIR = join(process.cwd(), 'public/dienstplan-drawings');
+const DRAWINGS_DIR = join(process.cwd(), 'storage/drawings');
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -16,9 +16,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const pdfDrawingsDir = join(DRAWINGS_DIR, sanitizePath(pdfName));
-    const pngPath = join(pdfDrawingsDir, `${drawingId}.png`);
-    const jsonPath = join(pdfDrawingsDir, `${drawingId}.json`);
+    const pngPath = join(DRAWINGS_DIR, `${drawingId}.png`);
+    const jsonPath = join(DRAWINGS_DIR, `${drawingId}.json`);
 
     // Sicherheitscheck: Verhindere Directory Traversal
     if (!pngPath.startsWith(DRAWINGS_DIR) || !jsonPath.startsWith(DRAWINGS_DIR)) {
@@ -28,12 +27,31 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Lösche beide Dateien
+    // Loesche zuerst aus flacher Struktur.
     if (existsSync(pngPath)) {
       await unlink(pngPath);
     }
     if (existsSync(jsonPath)) {
       await unlink(jsonPath);
+    }
+
+    // Rueckwaertskompatibilitaet fuer alte Unterordner-Struktur.
+    const legacyPdfDrawingsDir = join(DRAWINGS_DIR, sanitizePath(pdfName));
+    const legacyPngPath = join(legacyPdfDrawingsDir, `${drawingId}.png`);
+    const legacyJsonPath = join(legacyPdfDrawingsDir, `${drawingId}.json`);
+
+    if (!legacyPngPath.startsWith(DRAWINGS_DIR) || !legacyJsonPath.startsWith(DRAWINGS_DIR)) {
+      return NextResponse.json(
+        { error: 'Ungültiger Pfad' },
+        { status: 400 }
+      );
+    }
+
+    if (existsSync(legacyPngPath)) {
+      await unlink(legacyPngPath);
+    }
+    if (existsSync(legacyJsonPath)) {
+      await unlink(legacyJsonPath);
     }
 
     return NextResponse.json({ success: true });

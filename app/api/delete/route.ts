@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { unlink, readdir, rmdir, readFile, writeFile, mkdir } from 'fs/promises';
+import { unlink, readdir, rm, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
@@ -23,8 +23,8 @@ async function writeLastChangedTimestamp() {
   }
 }
 
-const UPLOAD_DIR = join(process.cwd(), 'public/dienstplan-uploads');
-const DRAWINGS_DIR = join(process.cwd(), 'public/dienstplan-drawings');
+const UPLOAD_DIR = join(process.cwd(), 'storage/uploads');
+const DRAWINGS_DIR = join(process.cwd(), 'storage/drawings');
 
 function sanitizePath(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -33,15 +33,51 @@ function sanitizePath(name: string): string {
 async function deleteDirectoryContents(dirPath: string): Promise<void> {
   try {
     if (!existsSync(dirPath)) return;
-
-    const files = await readdir(dirPath);
-    for (const file of files) {
-      const filePath = join(dirPath, file);
-      await unlink(filePath);
-    }
-    await rmdir(dirPath);
+    await rm(dirPath, { recursive: true, force: true });
   } catch (err) {
     console.error(`Fehler beim Löschen des Verzeichnisses ${dirPath}:`, err);
+  }
+}
+
+function stripPdfExtension(name: string): string {
+  return name.replace(/\.pdf$/i, '');
+}
+
+async function deleteFlatDrawingsForPdf(fileName: string): Promise<void> {
+  if (!existsSync(DRAWINGS_DIR)) {
+    return;
+  }
+
+  const requestedPdfKey = sanitizePath(stripPdfExtension(fileName));
+  const entries = await readdir(DRAWINGS_DIR);
+  const jsonFiles = entries.filter((entry) => entry.endsWith('.json'));
+
+  for (const jsonFile of jsonFiles) {
+    try {
+      const jsonPath = join(DRAWINGS_DIR, jsonFile);
+      const raw = await readFile(jsonPath, 'utf-8');
+      const meta = JSON.parse(raw);
+      const metaPdfName = String(meta.pdfName || '');
+      const metaPdfKey = sanitizePath(stripPdfExtension(metaPdfName));
+
+      if (metaPdfName !== fileName && metaPdfKey !== requestedPdfKey) {
+        continue;
+      }
+
+      const imageName = String(meta.fileName || '');
+      if (imageName) {
+        const imagePath = join(DRAWINGS_DIR, imageName);
+        if (imagePath.startsWith(DRAWINGS_DIR) && existsSync(imagePath)) {
+          await unlink(imagePath);
+        }
+      }
+
+      if (jsonPath.startsWith(DRAWINGS_DIR) && existsSync(jsonPath)) {
+        await unlink(jsonPath);
+      }
+    } catch (err) {
+      console.error(`Fehler beim Löschen der Drawing-Metadaten ${jsonFile}:`, err);
+    }
   }
 }
 
@@ -65,12 +101,15 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Lösche die PDF
+    // Loesche die PDF.
     if (existsSync(filePath)) {
       await unlink(filePath);
     }
 
-    // Lösche zugehörige Zeichnungen
+    // Lösche zugehörige Zeichnungen aus flacher Struktur
+    await deleteFlatDrawingsForPdf(fileName);
+
+    // Lösche zugehörige Zeichnungen aus alter Unterordner-Struktur
     const drawingsDirForPdf = join(DRAWINGS_DIR, sanitizePath(fileName));
     await deleteDirectoryContents(drawingsDirForPdf);
 

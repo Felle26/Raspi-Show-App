@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 
-const UPLOAD_DIR = join(process.cwd(), 'public/dienstplan-uploads');
+const UPLOAD_DIR = join(process.cwd(), 'storage/uploads');
 
 export async function GET() {
   try {
