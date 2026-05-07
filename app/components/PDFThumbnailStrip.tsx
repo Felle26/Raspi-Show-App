@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as PDFJS from 'pdfjs-dist';
 
 PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
@@ -16,6 +16,58 @@ interface PDFThumbnailStripProps {
   onNewFilesDetected?: () => void;
 }
 
+interface FileMeta {
+  kw: number | null;
+  year: number;
+}
+
+function extractKw(name: string): number | null {
+  const kwMatch = name.match(/(?:^|[^a-z0-9])k\W*w\W*([0-5]?\d)(?:\D|$)/i);
+  if (!kwMatch) {
+    return null;
+  }
+
+  const week = Number.parseInt(kwMatch[1], 10);
+  if (!Number.isFinite(week) || week < 1 || week > 53) {
+    return null;
+  }
+
+  return week;
+}
+
+function extractYear(uploadDate: string): number {
+  const parsed = new Date(uploadDate);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.getFullYear();
+  }
+
+  return new Date().getFullYear();
+}
+
+function getIsoWeekRange(year: number, week: number): { start: Date; end: Date } {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+
+  const start = new Date(week1Monday);
+  start.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+
+  return { start, end };
+}
+
+function formatDate(date: Date, shortYear = false): string {
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const year = String(date.getUTCFullYear());
+  const yearPart = shortYear ? year.slice(-2) : year;
+
+  return `${day}.${month}.${yearPart}`;
+}
+
 export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDetected }: PDFThumbnailStripProps) {
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,19 +75,100 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const knownFileNamesRef = React.useRef<Set<string> | null>(null);
   const lastUploadAtRef = React.useRef<string | null>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  function scrollStrip(direction: 'left' | 'right') {
+    if (!scrollRef.current) return;
+    const amount = scrollRef.current.clientWidth * 0.85;
+    scrollRef.current.scrollBy({ left: direction === 'right' ? amount : -amount, behavior: 'smooth' });
+  }
+
+  const fileMeta = useMemo<Record<string, FileMeta>>(() => {
+    const map: Record<string, FileMeta> = {};
+
+    for (const file of files) {
+      map[file.name] = {
+        kw: extractKw(file.name),
+        year: extractYear(file.uploadDate),
+      };
+    }
+
+    return map;
+  }, [files]);
+
+  const sortedFiles = useMemo(() => {
+    const copy = [...files];
+    copy.sort((a, b) => {
+      const metaA = fileMeta[a.name];
+      const metaB = fileMeta[b.name];
+      const kwA = metaA?.kw ?? null;
+      const kwB = metaB?.kw ?? null;
+      const yearA = metaA?.year ?? new Date().getFullYear();
+      const yearB = metaB?.year ?? new Date().getFullYear();
+
+      if (kwA !== null && kwB !== null) {
+        if (yearA !== yearB) {
+          return yearA - yearB;
+        }
+
+        if (kwA !== kwB) {
+          return kwA - kwB;
+        }
+
+        return a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' });
+      }
+
+      if (kwA !== null) {
+        return -1;
+      }
+
+      if (kwB !== null) {
+        return 1;
+      }
+
+      return a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' });
+    });
+
+    return copy;
+  }, [fileMeta, files]);
+
+  const groupedFiles = useMemo(() => {
+    const groups = new Map<string, { label: string; files: PDFFile[] }>();
+
+    for (const file of sortedFiles) {
+      const meta = fileMeta[file.name];
+      const kw = meta?.kw ?? null;
+      const year = meta?.year ?? new Date().getFullYear();
+      const key = kw === null ? 'ohne-kw' : `kw-${kw}-${year}`;
+
+      let label = 'Ohne KW';
+      if (kw !== null) {
+        const range = getIsoWeekRange(year, kw);
+        label = `KW ${kw} | ${formatDate(range.start, true)} - ${formatDate(range.end)}`;
+      }
+
+      if (!groups.has(key)) {
+        groups.set(key, { label, files: [] });
+      }
+
+      groups.get(key)!.files.push(file);
+    }
+
+    return [...groups.entries()].map(([key, value]) => ({ key, ...value }));
+  }, [sortedFiles]);
 
   useEffect(() => {
-    if (files.length === 0) {
+    if (sortedFiles.length === 0) {
       return;
     }
 
-    if (selectedPdfName && files.some((file) => file.name === selectedPdfName)) {
+    if (selectedPdfName && sortedFiles.some((file) => file.name === selectedPdfName)) {
       return;
     }
 
-    const firstFile = files[0];
+    const firstFile = sortedFiles[0];
     onPDFSelect(firstFile.name, `/dienstplan-uploads/${encodeURIComponent(firstFile.name)}`);
-  }, [files, onPDFSelect, selectedPdfName]);
+  }, [onPDFSelect, selectedPdfName, sortedFiles]);
 
   // Laden der Dateien
   useEffect(() => {
@@ -47,10 +180,10 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
 
-        // Fit in the compact strip tile size.
+        // Fit in the larger touch-friendly strip tile size.
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 40;
-        const targetHeight = 56;
+        const targetWidth = 56;
+        const targetHeight = 76;
         const scale = Math.min(targetWidth / baseViewport.width, targetHeight / baseViewport.height);
         const viewport = page.getViewport({ scale });
 
@@ -158,15 +291,15 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-14 bg-gray-100 dark:bg-slate-800">
-        <span className="text-sm text-gray-600 dark:text-gray-300">Lädt...</span>
+      <div className="flex h-20 items-center justify-center bg-gray-100 dark:bg-slate-800">
+        <span className="text-base text-gray-600 dark:text-gray-300">Lädt...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-14 bg-red-100 dark:bg-red-900 text-red-900 dark:text-red-100">
+      <div className="flex h-20 items-center justify-center bg-red-100 text-base text-red-900 dark:bg-red-900 dark:text-red-100">
         {error}
       </div>
     );
@@ -174,48 +307,81 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
 
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center h-14 bg-gray-100 dark:bg-slate-800">
-        <span className="text-sm text-gray-600 dark:text-gray-300">Keine PDFs gefunden</span>
+      <div className="flex h-20 items-center justify-center bg-gray-100 dark:bg-slate-800">
+        <span className="text-base text-gray-600 dark:text-gray-300">Keine PDFs gefunden</span>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-slate-900 border-t border-gray-300 dark:border-gray-700 px-2 py-2">
-      <div className="flex gap-2 overflow-x-auto px-1 py-0.5">
-        {files.map((file) => (
-          <button
-            key={file.name}
-            onClick={() =>
-              onPDFSelect(file.name, `/dienstplan-uploads/${encodeURIComponent(file.name)}`)
-            }
-            title={file.name}
-            className={`shrink-0 cursor-pointer transition-colors flex items-center gap-2 rounded-md border px-2 py-1 h-16 min-w-max ${
-              selectedPdfName === file.name
-                ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            {/* Thumbnail oder Placeholder */}
-            {thumbnails[file.name] ? (
-              <div className="relative w-10 h-14 rounded-sm overflow-hidden border border-gray-300 dark:border-gray-600 bg-white">
-                <img
-                  src={thumbnails[file.name]}
-                  alt={file.name}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-            ) : (
-              <div className="w-10 h-14 rounded-sm border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-slate-700 flex items-center justify-center">
-                <span className="text-sm">📄</span>
-              </div>
-            )}
+    <div className="relative border-t border-gray-300 bg-white px-3 py-4 dark:border-gray-700 dark:bg-slate-900">
+      {/* Left scroll button */}
+      <button
+        onClick={() => scrollStrip('left')}
+        aria-label="Nach links scrollen"
+        className="absolute left-0 top-1/2 z-10 -translate-y-1/2 flex h-full w-12 items-center justify-center bg-linear-to-r from-white via-white/90 to-transparent text-gray-600 transition-opacity hover:text-gray-900 dark:from-slate-900 dark:via-slate-900/90 dark:text-gray-300 dark:hover:text-white"
+      >
+        <span className="text-2xl font-bold">‹</span>
+      </button>
 
-            <span className="text-left text-xs leading-snug text-gray-800 dark:text-gray-200 whitespace-nowrap">
-              {file.name}
-            </span>
-          </button>
-        ))}
+      {/* Right scroll button */}
+      <button
+        onClick={() => scrollStrip('right')}
+        aria-label="Nach rechts scrollen"
+        className="absolute right-0 top-1/2 z-10 -translate-y-1/2 flex h-full w-12 items-center justify-center bg-linear-to-l from-white via-white/90 to-transparent text-gray-600 transition-opacity hover:text-gray-900 dark:from-slate-900 dark:via-slate-900/90 dark:text-gray-300 dark:hover:text-white"
+      >
+        <span className="text-2xl font-bold">›</span>
+      </button>
+
+      <div
+        ref={scrollRef}
+        className="snap-x snap-mandatory overflow-x-auto px-10 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex min-w-max gap-4">
+          {groupedFiles.map((group) => (
+            <section
+              key={group.key}
+              className="shrink-0 snap-start rounded-xl border border-gray-300 bg-gray-50 p-3 dark:border-gray-700 dark:bg-slate-800"
+              style={{ width: 'min(90vw, 52rem)' }}
+            >
+              <h3 className="mb-3 text-base font-bold text-gray-800 dark:text-gray-100">{group.label}</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {group.files.map((file) => (
+                  <button
+                    key={file.name}
+                    onClick={() =>
+                      onPDFSelect(file.name, `/dienstplan-uploads/${encodeURIComponent(file.name)}`)
+                    }
+                    title={file.name}
+                    className={`flex min-h-28 w-full flex-col items-center gap-2 rounded-lg border px-2 py-2 text-center transition-colors ${
+                      selectedPdfName === file.name
+                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-900/20'
+                        : 'border-gray-300 hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {thumbnails[file.name] ? (
+                      <div className="relative h-16 w-12 overflow-hidden rounded-sm border border-gray-300 bg-white dark:border-gray-600">
+                        <img
+                          src={thumbnails[file.name]}
+                          alt={file.name}
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex h-16 w-12 items-center justify-center rounded-sm border border-gray-300 bg-gray-200 dark:border-gray-600 dark:bg-slate-700">
+                        <span className="text-sm">📄</span>
+                      </div>
+                    )}
+
+                    <span className="line-clamp-2 text-xs font-semibold leading-tight text-gray-800 dark:text-gray-200">
+                      {file.name.replace(/\.pdf$/i, '')}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -23,6 +23,8 @@ interface PDFFile {
 export default function AdminPage() {
   const router = useRouter();
   const lastChangedAtRef = useRef<string | null>(null);
+  const [adminAccessChecked, setAdminAccessChecked] = useState(false);
+  const [adminAccessGranted, setAdminAccessGranted] = useState(false);
   const [files, setFiles] = useState<PDFFile[]>([]);
   const [drawings, setDrawings] = useState<Record<string, Drawing[]>>({});
   const [loading, setLoading] = useState(true);
@@ -46,6 +48,12 @@ export default function AdminPage() {
   };
 
   const handleSavePassword = async () => {
+    if (editPassword && !/^\d+$/.test(editPassword)) {
+      setPasswordStatus('error');
+      setTimeout(() => setPasswordStatus('idle'), 2000);
+      return;
+    }
+
     setPasswordStatus('saving');
     try {
       const res = await fetch('/api/edit-password', {
@@ -120,11 +128,30 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    loadData();
-    loadPasswordStatus();
-  }, []);
+    const confirmed = window.confirm('Admin-Bereich öffnen?');
+    if (!confirmed) {
+      router.replace('/');
+      return;
+    }
+
+    setAdminAccessGranted(true);
+    setAdminAccessChecked(true);
+  }, [router]);
 
   useEffect(() => {
+    if (!adminAccessGranted) {
+      return;
+    }
+
+    loadData();
+    loadPasswordStatus();
+  }, [adminAccessGranted]);
+
+  useEffect(() => {
+    if (!adminAccessGranted) {
+      return;
+    }
+
     let ignore = false;
 
     fetch('/api/upload-timestamp')
@@ -160,10 +187,18 @@ export default function AdminPage() {
       ignore = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [adminAccessGranted]);
+
+  if (!adminAccessChecked || !adminAccessGranted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-lg font-semibold text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+        Sicherheitsabfrage wird geprüft...
+      </div>
+    );
+  }
 
   const handleDeleteDrawing = async (drawingId: string, pdfName: string) => {
-    if (!window.confirm('Zeichnung wirklich löschen?')) return;
+    if (!window.confirm('Änderung wirklich löschen?')) return;
 
     setDeletingDrawing(drawingId);
     try {
@@ -180,7 +215,7 @@ export default function AdminPage() {
         [pdfName]: prev[pdfName]?.filter((d) => d.id !== drawingId) || [],
       }));
 
-      alert('Zeichnung gelöscht');
+      alert('Änderung gelöscht');
     } catch (err) {
       alert(`Fehler: ${err}`);
     } finally {
@@ -189,7 +224,7 @@ export default function AdminPage() {
   };
 
   const handleDeletePdf = async (fileName: string) => {
-    if (!window.confirm('PDF und alle zugehörigen Zeichnungen wirklich löschen?')) return;
+    if (!window.confirm('PDF und alle zugehörigen Änderungen wirklich löschen?')) return;
 
     setDeletingPdf(fileName);
     try {
@@ -336,7 +371,7 @@ export default function AdminPage() {
                                   disabled={deletingDrawing === drawing.id}
                                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded text-sm transition-colors font-medium"
                                 >
-                                  {deletingDrawing === drawing.id ? '...' : '🗑️ Zeichnung'}
+                                  {deletingDrawing === drawing.id ? '...' : '🗑️ Änderung'}
                                 </button>
                               </div>
                             </div>
@@ -350,22 +385,24 @@ export default function AdminPage() {
             )}
           </section>
 
-          {/* Passwort-Sektion */}
+          {/* Pin-Sektion */}
           <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-            🔒 Ändern-Bereich Passwort
+            🔒 Ändern-Bereich Pin
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
             {isPasswordSet
-              ? 'Ein Passwort ist gesetzt. Der Ändern-Bereich in der Show-Ansicht ist geschützt.'
-              : 'Kein Passwort gesetzt – der Ändern-Bereich ist frei zugänglich.'}
+              ? 'Eine Pin ist gesetzt. Der Ändern-Bereich in der Show-Ansicht ist geschützt. Es sind nur Zahlen erlaubt.'
+              : 'Keine Pin gesetzt – der Ändern-Bereich ist frei zugänglich. Neue Pins dürfen nur Zahlen enthalten.'}
           </p>
           <div className="flex gap-2 flex-wrap items-center">
             <input
               type="password"
-              placeholder="Neues Passwort..."
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="Neue Pin..."
               value={editPassword}
-              onChange={(e) => setEditPassword(e.target.value)}
+              onChange={(e) => setEditPassword(e.target.value.replace(/\D+/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && handleSavePassword()}
               className="flex-1 min-w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
             />
@@ -374,7 +411,7 @@ export default function AdminPage() {
               disabled={passwordStatus === 'saving' || !editPassword}
               className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
             >
-              {passwordStatus === 'saving' ? 'Speichert...' : passwordStatus === 'saved' ? '✓ Gespeichert' : passwordStatus === 'error' ? '✗ Fehler' : '💾 Passwort speichern'}
+              {passwordStatus === 'saving' ? 'Speichert...' : passwordStatus === 'saved' ? '✓ Gespeichert' : passwordStatus === 'error' ? '✗ Fehler' : '💾 Pin speichern'}
             </button>
             {isPasswordSet && (
               <button

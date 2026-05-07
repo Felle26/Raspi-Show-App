@@ -38,7 +38,7 @@ export function extractEnstelleTrailingText(text: string): string | null {
 
     const trailingText = numberMatch[2].replace(/^\s*[:;,.\-]?\s*/, "").trim();
     if (trailingText.length > 0) {
-      return sanitizeBaseName(trailingText);
+      return sanitizeBaseName(trailingText.replace(/\//g, " "));
     }
   }
 
@@ -131,22 +131,73 @@ export interface ExtractedPdfNaming {
   detectedFallbackName: string | null;
 }
 
+function extractKuchenFeinbackLabel(text: string): string | null {
+  const normalized = text
+    .replace(/\u00A0/g, " ")
+    .replace(/[‐‑‒–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Accept common separators/variants like:
+  // "Kuchen / Feinback", "Kuchen-Feinback", "Kuchen Feinback".
+  const match = normalized.match(/\bkuchen\b\s*(?:[\/-]|\|)?\s*\bfeinback\b/i);
+  if (!match) {
+    return null;
+  }
+
+  return "Kuchen Feinback";
+}
+
+function isNoiseFallbackLine(line: string): boolean {
+  const normalized = line.trim();
+  if (!normalized) {
+    return true;
+  }
+
+  // Common footer/header disclaimers that should never become fallback names.
+  if (/^aenderungen vorbehalten!?$/i.test(normalized) || /^änderungen vorbehalten!?$/i.test(normalized)) {
+    return true;
+  }
+
+  // Pure page counters like "Seite 1".
+  if (/^seite\s+\d+$/i.test(normalized)) {
+    return true;
+  }
+
+  // Lines that only contain punctuation/symbols are not useful names.
+  if (!/[\p{L}\p{N}]/u.test(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function pickFallbackLine(text: string): string | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line: string) => line.trim())
+    .filter((line: string) => line.length > 0);
+
+  const meaningful = lines.find((line) => !isNoiseFallbackLine(line));
+  return meaningful ?? null;
+}
+
 export function extractNamingFromText(text: string): ExtractedPdfNaming {
   const planKwName = extractPlanKwName(text);
   const enstelleTrailingText = extractEnstelleTrailingText(text);
+  const kuchenFeinbackLabel = extractKuchenFeinbackLabel(text);
+  const namingDescriptor = enstelleTrailingText ?? kuchenFeinbackLabel;
   const combinedPlanKwName =
-    planKwName && enstelleTrailingText
-      ? sanitizeBaseName(`${planKwName} ${enstelleTrailingText}`)
+    planKwName && namingDescriptor
+      ? sanitizeBaseName(`${planKwName} ${namingDescriptor}`)
       : planKwName;
 
-  const firstLine = text
-    .split(/\r?\n/)
-    .map((line: string) => line.trim())
-    .find((line: string) => line.length > 0);
+  const fallbackLine = pickFallbackLine(text);
 
   return {
     detectedPlanKwName: combinedPlanKwName,
     detectedFallbackName:
-      enstelleTrailingText ?? (firstLine ? sanitizeBaseName(firstLine) : null),
+      (namingDescriptor ? sanitizeBaseName(namingDescriptor) : null) ??
+      (fallbackLine ? sanitizeBaseName(fallbackLine) : null),
   };
 }

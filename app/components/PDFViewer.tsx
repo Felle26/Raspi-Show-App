@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as PDFJS from 'pdfjs-dist';
 import { DrawingColor, DrawingTool, DrawingToolbar } from './DrawingToolbar';
+import { OnScreenKeyboard } from './OnScreenKeyboard';
 
 PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
@@ -331,6 +332,7 @@ function PDFPageCanvas({
 }
 
 export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
+  const scrollStep = 420;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const overlayCanvasMapRef = useRef<Record<number, HTMLCanvasElement | null>>({});
   const pageElementMapRef = useRef<Record<number, HTMLDivElement | null>>({});
@@ -356,6 +358,8 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordRequired, setPasswordRequired] = useState(false);
+  const [showTextKeyboard, setShowTextKeyboard] = useState(false);
+  const [showPasswordKeyboard, setShowPasswordKeyboard] = useState(false);
 
   useEffect(() => {
     fetch('/api/edit-password')
@@ -370,17 +374,27 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!editingEnabled || currentTool !== 'text') {
+      setShowTextKeyboard(false);
+    }
+  }, [currentTool, editingEnabled]);
+
   const handleUnlockClick = () => {
     if (editingEnabled) {
       setEditingEnabled(false);
+      setShowTextKeyboard(false);
       return;
     }
     if (!passwordRequired) {
       setEditingEnabled(true);
+      setViewMode('single');
+      setCurrentPage(activePage);
       return;
     }
     setPasswordInput('');
     setPasswordError('');
+    setShowPasswordKeyboard(true);
     setShowPasswordModal(true);
   };
 
@@ -392,9 +406,12 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       const data = await res.json();
       if (data.unlocked) {
         setEditingEnabled(true);
+        setViewMode('single');
+        setCurrentPage(activePage);
         setShowPasswordModal(false);
         setPasswordInput('');
         setPasswordError('');
+        setShowPasswordKeyboard(false);
       } else {
         setPasswordError('Falsches Passwort');
       }
@@ -683,33 +700,36 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       {/* Passwort-Modal */}
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-80 rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-900">
-            <h3 className="mb-1 text-lg font-bold text-gray-900 dark:text-white">🔒 Passwort eingeben</h3>
-            <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+          <div className="w-104 max-w-[92vw] rounded-xl bg-white p-7 shadow-2xl dark:bg-slate-900">
+            <h3 className="mb-1 text-2xl font-bold text-gray-900 dark:text-white">🔒 Passwort eingeben</h3>
+            <p className="mb-4 text-base text-gray-600 dark:text-gray-400">
               Bitte gib das Passwort ein, um den Ändern-Bereich freizuschalten.
             </p>
-            <input
-              type="password"
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-              placeholder="Passwort..."
-              autoFocus
-              className="mb-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-slate-800 dark:text-white"
-            />
+            <input type="hidden" value={passwordInput} readOnly />
+            {showPasswordKeyboard && (
+              <OnScreenKeyboard
+                value={passwordInput}
+                onChange={setPasswordInput}
+                onEnter={handlePasswordSubmit}
+                onClose={() => setShowPasswordKeyboard(false)}
+                numericOnly
+                displayLabel="PIN"
+                maskDisplay
+              />
+            )}
             {passwordError && (
-              <p className="mb-3 text-sm font-semibold text-red-600 dark:text-red-400">{passwordError}</p>
+              <p className="mb-3 text-base font-semibold text-red-600 dark:text-red-400">{passwordError}</p>
             )}
             <div className="flex gap-2">
               <button
                 onClick={handlePasswordSubmit}
-                className="flex-1 rounded-lg bg-blue-500 py-2 font-semibold text-white transition-colors hover:bg-blue-600"
+                className="min-h-12 flex-1 rounded-lg bg-blue-500 px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-blue-600"
               >
                 Entsperren
               </button>
               <button
-                onClick={() => { setShowPasswordModal(false); setPasswordInput(''); setPasswordError(''); }}
-                className="flex-1 rounded-lg bg-gray-200 py-2 font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                onClick={() => { setShowPasswordModal(false); setPasswordInput(''); setPasswordError(''); setShowPasswordKeyboard(false); }}
+                className="min-h-12 flex-1 rounded-lg bg-gray-200 px-4 py-3 text-base font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
               >
                 Abbrechen
               </button>
@@ -734,14 +754,15 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
           isSaving={isSaving}
           showLayersPanel={showLayersPanel}
           onLayersToggle={() => setShowLayersPanel((v) => !v)}
+          onTextKeyboardShow={() => setShowTextKeyboard(true)}
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 bg-white px-4 py-3 dark:border-gray-700 dark:bg-slate-900">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-300 bg-white px-5 py-4 dark:border-gray-700 dark:bg-slate-900">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => handleViewModeChange('single')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`min-h-12 rounded-full px-5 py-3 text-base font-semibold transition-colors ${
               viewMode === 'single'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
@@ -751,7 +772,7 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
           </button>
           <button
             onClick={() => handleViewModeChange('all')}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`min-h-12 rounded-full px-5 py-3 text-base font-semibold transition-colors ${
               viewMode === 'all'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
@@ -759,16 +780,16 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
           >
             Alle Seiten
           </button>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <span className="text-base font-semibold text-gray-700 dark:text-gray-300">
             Aktive Seite: {activePage} / {Math.max(totalPages, 1)}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={handleUnlockClick}
             title={editingEnabled ? 'Ändern-Bereich sperren' : 'Ändern-Bereich entsperren'}
-            className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition-colors ${
+            className={`flex h-12 w-12 items-center justify-center rounded-full text-2xl transition-colors ${
               editingEnabled
                 ? 'bg-green-500 hover:bg-green-600 text-white'
                 : 'bg-gray-400 hover:bg-gray-500 text-white'
@@ -780,7 +801,7 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
             onClick={handleZoomOut}
             aria-label="Zoom verkleinern"
             title="Zoom verkleinern"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-500 text-xl leading-none text-white transition-colors hover:bg-gray-600"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-500 text-2xl leading-none text-white transition-colors hover:bg-gray-600"
           >
             -
           </button>
@@ -788,7 +809,7 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
             onClick={handleZoomIn}
             aria-label="Zoom vergrößern"
             title="Zoom vergrößern"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-500 text-xl leading-none text-white transition-colors hover:bg-gray-600"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-500 text-2xl leading-none text-white transition-colors hover:bg-gray-600"
           >
             +
           </button>
@@ -802,7 +823,7 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       )}
 
       <div className="relative flex-1 min-h-0">
-        <div ref={scrollContainerRef} className="h-full overflow-auto bg-slate-200 px-2 py-4 dark:bg-slate-800 sm:px-4">
+        <div ref={scrollContainerRef} className="h-full overflow-auto bg-slate-200 px-3 py-5 dark:bg-slate-800 sm:px-5">
         {pdf ? (
           <div className="mx-auto flex w-full max-w-full flex-col gap-8">
             {displayedPages.map((pageNumber) => (
@@ -834,46 +855,46 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
 
         {/* Scroll-Buttons */}
         <button
-          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: -350, behavior: 'smooth' })}
+          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: -scrollStep, behavior: 'smooth' })}
           aria-label="Nach oben scrollen"
-          className="absolute right-4 top-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-black/40 text-2xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
+          className="absolute right-4 top-4 z-10 flex h-16 w-16 items-center justify-center rounded-full bg-black/40 text-3xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
         >
           ↑
         </button>
         <button
-          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: 350, behavior: 'smooth' })}
+          onPointerDown={() => scrollContainerRef.current?.scrollBy({ top: scrollStep, behavior: 'smooth' })}
           aria-label="Nach unten scrollen"
-          className="absolute right-4 bottom-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-black/40 text-2xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
+          className="absolute right-4 bottom-4 z-10 flex h-16 w-16 items-center justify-center rounded-full bg-black/40 text-3xl text-white shadow-lg backdrop-blur-sm active:bg-black/60"
         >
           ↓
         </button>
 
         {/* Ebenen-Panel */}
         {showLayersPanel && (
-          <div className="absolute left-0 top-0 bottom-0 z-20 flex w-64 flex-col overflow-hidden border-r border-gray-200 bg-white/95 shadow-xl backdrop-blur-sm dark:border-gray-700 dark:bg-slate-900/95">
-            <div className="flex items-center justify-between border-b border-gray-200 p-3 dark:border-gray-700">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+          <div className="absolute bottom-0 left-0 top-0 z-20 flex w-72 flex-col overflow-hidden border-r border-gray-200 bg-white/95 shadow-xl backdrop-blur-sm dark:border-gray-700 dark:bg-slate-900/95">
+            <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">
                 Ebenen – Seite {activePage}
               </h3>
               <button
                 onClick={() => setShowLayersPanel(false)}
-                className="text-lg leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                className="flex h-11 w-11 items-center justify-center rounded-full text-xl leading-none text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-slate-700 dark:hover:text-gray-100"
                 aria-label="Panel schließen"
               >
                 ✕
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2">
+            <div className="flex-1 overflow-y-auto p-3">
               {pageLayerDrawings.length === 0 ? (
-                <p className="p-3 text-sm text-gray-500 dark:text-gray-400">
+                <p className="p-3 text-base text-gray-500 dark:text-gray-400">
                   Keine Zeichnungen auf Seite {activePage}.
                 </p>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                   {pageLayerDrawings.map((drawing) => (
                     <div
                       key={drawing.id}
-                      className={`rounded-lg border p-2 ${
+                      className={`rounded-lg border p-3 ${
                         editingDrawingId === drawing.id
                           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                           : 'border-gray-200 dark:border-gray-700'
@@ -884,22 +905,22 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
                         alt="Zeichnung"
                         className="w-full rounded border border-gray-200 dark:border-gray-600"
                       />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                         {new Date(drawing.createdAt).toLocaleString('de-DE')}
                         {editingDrawingId === drawing.id && (
                           <span className="ml-1 font-semibold text-blue-500"> (wird bearbeitet)</span>
                         )}
                       </p>
-                      <div className="mt-2 flex gap-1">
+                      <div className="mt-3 flex gap-2">
                         <button
                           onClick={() => handleEditDrawing(drawing)}
-                          className="flex-1 rounded px-2 py-1 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-colors"
+                          className="min-h-11 flex-1 rounded px-3 py-2 text-sm font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-colors"
                         >
                           ✏️ Bearbeiten
                         </button>
                         <button
                           onClick={() => handleDeleteDrawing(drawing)}
-                          className="flex-1 rounded px-2 py-1 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white transition-colors"
+                          className="min-h-11 flex-1 rounded px-3 py-2 text-sm font-semibold bg-red-500 hover:bg-red-600 text-white transition-colors"
                         >
                           🗑️ Löschen
                         </button>
@@ -914,11 +935,11 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
       </div>
 
       {totalPages > 0 && viewMode === 'single' && (
-        <div className="flex items-center justify-center gap-4 border-t border-gray-300 bg-white p-4 dark:border-gray-700 dark:bg-slate-900">
+        <div className="flex items-center justify-center gap-4 border-t border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-slate-900">
           <button
             onClick={() => handlePageChange('prev')}
             disabled={currentPage === 1}
-            className="rounded-lg bg-gray-400 px-4 py-2 text-white transition-colors hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-700"
+            className="min-h-12 rounded-lg bg-gray-400 px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-700"
           >
             ← Vorherige
           </button>
@@ -928,10 +949,33 @@ export function PDFViewer({ pdfUrl, pdfName, onDrawingSaved }: PDFViewerProps) {
           <button
             onClick={() => handlePageChange('next')}
             disabled={currentPage === totalPages}
-            className="rounded-lg bg-gray-400 px-4 py-2 text-white transition-colors hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-700"
+            className="min-h-12 rounded-lg bg-gray-400 px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-700"
           >
             Nächste →
           </button>
+        </div>
+      )}
+
+      {editingEnabled && currentTool === 'text' && showTextKeyboard && !showPasswordModal && (
+        <div className="fixed inset-x-0 bottom-0 z-40 bg-black/25 px-4 pb-4 pt-3 backdrop-blur-sm">
+          <div className="mx-auto w-full max-w-5xl rounded-xl border border-gray-300 bg-gray-100 p-3 shadow-2xl dark:border-gray-700 dark:bg-slate-900">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Text-Tastatur</p>
+              <button
+                type="button"
+                onClick={() => setShowTextKeyboard(false)}
+                className="min-h-10 rounded-lg bg-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
+              >
+                Schliessen
+              </button>
+            </div>
+            <OnScreenKeyboard
+              value={textInput}
+              onChange={setTextInput}
+              onClose={() => setShowTextKeyboard(false)}
+              displayLabel="Text"
+            />
+          </div>
         </div>
       )}
     </div>

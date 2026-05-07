@@ -82,9 +82,9 @@ describe("extractNamingFromText", () => {
     const text =
       "nstelle 020 Bäckerei Brot/Brötchen/Ofen\nPlan KW 16 13.04.2026 - 19.04.2026";
     const result = extractNamingFromText(text);
-    expect(result.detectedPlanKwName).toBe("Plan KW 16 Bäckerei Brot_Brötchen_Ofen");
+    expect(result.detectedPlanKwName).toBe("Plan KW 16 Bäckerei Brot Brötchen Ofen");
     expect(result.detectedFallbackName).toBe(
-      "Bäckerei Brot_Brötchen_Ofen"
+      "Bäckerei Brot Brötchen Ofen"
     );
   });
 
@@ -112,13 +112,33 @@ describe("extractNamingFromText", () => {
     expect(result.detectedPlanKwName).toBeNull();
     expect(result.detectedFallbackName).toBeNull();
   });
+
+  it("uses 'Kuchen / Feinback' as naming descriptor with KW", () => {
+    const text = "Plan KW 17 21.04.2026 - 27.04.2026\nKuchen / Feinback";
+    const result = extractNamingFromText(text);
+    expect(result.detectedPlanKwName).toBe("Plan KW 17 Kuchen Feinback");
+    expect(result.detectedFallbackName).toBe("Kuchen Feinback");
+  });
+
+  it("uses 'Kuchen-Feinback' as fallback when no KW exists", () => {
+    const text = "Aenderungen vorbehalten!\nKuchen-Feinback\nSeite 1";
+    const result = extractNamingFromText(text);
+    expect(result.detectedPlanKwName).toBeNull();
+    expect(result.detectedFallbackName).toBe("Kuchen Feinback");
+  });
+
+  it("skips disclaimer lines for fallback", () => {
+    const text = "Änderungen vorbehalten!\nBäckerei Hauptstraße\nSeite 1";
+    const result = extractNamingFromText(text);
+    expect(result.detectedFallbackName).toBe("Bäckerei Hauptstraße");
+  });
 });
 
 describe("extractEnstelleTrailingText", () => {
   it("extracts text after nstelle + digits", () => {
     const text = "nstelle 020 Bäckerei Brot/Brötchen/Ofen";
     expect(extractEnstelleTrailingText(text)).toBe(
-      "Bäckerei Brot_Brötchen_Ofen"
+      "Bäckerei Brot Brötchen Ofen"
     );
   });
 
@@ -155,7 +175,7 @@ describe("extractEnstelleTrailingText", () => {
   it("handles full word 'Kostenstelle'", () => {
     const text = "Kostenstelle 020 Bäckerei Brot/Brötchen/Ofen";
     expect(extractEnstelleTrailingText(text)).toBe(
-      "Bäckerei Brot_Brötchen_Ofen"
+      "Bäckerei Brot Brötchen Ofen"
     );
   });
 

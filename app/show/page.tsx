@@ -25,20 +25,20 @@ export default function ShowPage() {
     <div className="flex flex-col h-screen bg-slate-100 dark:bg-slate-950">
       {/* Neue-Dateien-Banner */}
       {showUpdateBanner && (
-        <div className="flex items-center justify-between gap-4 bg-amber-400 dark:bg-amber-500 px-4 py-2 text-amber-900 dark:text-amber-950 z-30">
-          <span className="text-sm font-semibold">
+        <div className="flex items-center justify-between gap-4 bg-amber-400 dark:bg-amber-500 px-5 py-3 text-amber-900 dark:text-amber-950 z-30">
+          <span className="text-base font-semibold">
             📂 Dateiliste hat sich geändert – Seite aktualisieren um die Änderungen zu sehen.
           </span>
           <div className="flex gap-2 shrink-0">
             <button
               onClick={() => window.location.reload()}
-              className="px-3 py-1 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-sm font-semibold transition-colors"
+              className="min-h-12 rounded-lg bg-amber-700 px-4 py-2 text-base font-semibold text-white transition-colors hover:bg-amber-800"
             >
               🔄 Jetzt aktualisieren
             </button>
             <button
               onClick={() => setShowUpdateBanner(false)}
-              className="px-3 py-1 bg-amber-600/40 hover:bg-amber-600/60 text-amber-900 dark:text-amber-950 rounded-lg text-sm font-semibold transition-colors"
+              className="min-h-12 rounded-lg bg-amber-600/40 px-4 py-2 text-base font-semibold text-amber-900 transition-colors hover:bg-amber-600/60 dark:text-amber-950"
               aria-label="Hinweis schließen"
             >
               ✕
@@ -57,8 +57,8 @@ export default function ShowPage() {
         ) : (
           <div className="h-full flex items-center justify-center text-gray-600 dark:text-gray-400">
             <div className="text-center">
-              <p className="text-2xl mb-4">📄</p>
-              <p className="text-xl">Wähle eine PDF aus der Leiste unten</p>
+              <p className="mb-4 text-4xl">📄</p>
+              <p className="text-2xl font-medium">Wähle eine PDF aus der Leiste unten</p>
             </div>
           </div>
         )}
