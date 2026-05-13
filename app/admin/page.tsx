@@ -95,6 +95,9 @@ export default function AdminPage() {
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeTab, setActiveTab] = useState<'dienstplan' | 'optionen'>('dienstplan');
   const [screensaverTimeout, setScreensaverTimeout] = useState(5);
+  const [weatherLocationName, setWeatherLocationName] = useState('Deutschland');
+  const [weatherLatitude, setWeatherLatitude] = useState('51.1657');
+  const [weatherLongitude, setWeatherLongitude] = useState('10.4515');
   const [screensaverStatus, setScreensaverStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
 
   const loadPasswordStatus = async () => {
@@ -116,6 +119,9 @@ export default function AdminPage() {
       if (res.ok) {
         const data = await res.json();
         setScreensaverTimeout(data.timeoutMinutes);
+        setWeatherLocationName(data.weatherLocationName ?? 'Deutschland');
+        setWeatherLatitude(String(data.weatherLatitude ?? 51.1657));
+        setWeatherLongitude(String(data.weatherLongitude ?? 10.4515));
       }
       setScreensaverStatus('idle');
     } catch {
@@ -131,14 +137,28 @@ export default function AdminPage() {
       return;
     }
 
+    if (!weatherLocationName.trim()) {
+      setScreensaverStatus('error');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
+      return;
+    }
+
     setScreensaverStatus('saving');
     try {
       const res = await fetch('/api/screensaver-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeoutMinutes: screensaverTimeout }),
+        body: JSON.stringify({
+          timeoutMinutes: screensaverTimeout,
+          weatherLocationName: weatherLocationName.trim() || 'Deutschland',
+        }),
       });
       if (!res.ok) throw new Error();
+
+      const data = await res.json();
+      setWeatherLatitude(String(data.weatherLatitude ?? weatherLatitude));
+      setWeatherLongitude(String(data.weatherLongitude ?? weatherLongitude));
+      setWeatherLocationName(data.weatherLocationName ?? weatherLocationName);
       setScreensaverStatus('saved');
       setTimeout(() => setScreensaverStatus('idle'), 2000);
     } catch {
@@ -684,6 +704,98 @@ export default function AdminPage() {
           {/* Optionen Tab */}
           {activeTab === 'optionen' && (
             <div className="flex-1 overflow-y-auto flex flex-col gap-6">
+              {/* 1. Einschaltzeit */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  1. Einschaltzeit
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Der Screensaver wird angezeigt, wenn auf der Show-Seite für die gewählte Zeit keine Aktivität erfolgt.
+                </p>
+                <div className="flex gap-3 flex-wrap items-center">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="screensaver-timeout" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Timeout (Minuten):
+                    </label>
+                    <input
+                      id="screensaver-timeout"
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={screensaverTimeout}
+                      onChange={(e) => setScreensaverTimeout(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5)))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveScreensaverTimeout()}
+                      className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveScreensaverTimeout}
+                    disabled={screensaverStatus === 'saving' || screensaverStatus === 'loading'}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+                  >
+                    {screensaverStatus === 'loading' ? 'Lädt...' : screensaverStatus === 'saving' ? 'Speichert...' : screensaverStatus === 'saved' ? '✓ Gespeichert' : screensaverStatus === 'error' ? '✗ Fehler' : '💾 Speichern'}
+                  </button>
+                </div>
+              </section>
+
+              {/* 2. Wetterbericht */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  2. Wetterbericht
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Ort und Koordinaten für DWD-Wetterdaten im Screensaver.
+                </p>
+                <div className="flex gap-3 flex-wrap items-center">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="weather-location" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Ort:
+                    </label>
+                    <input
+                      id="weather-location"
+                      type="text"
+                      value={weatherLocationName}
+                      onChange={(e) => setWeatherLocationName(e.target.value)}
+                      className="w-44 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="weather-latitude" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Breite:
+                    </label>
+                    <input
+                      id="weather-latitude"
+                      type="text"
+                      value={weatherLatitude}
+                      readOnly
+                      className="w-28 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="weather-longitude" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Länge:
+                    </label>
+                    <input
+                      id="weather-longitude"
+                      type="text"
+                      value={weatherLongitude}
+                      readOnly
+                      className="w-28 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveScreensaverTimeout}
+                    disabled={screensaverStatus === 'saving' || screensaverStatus === 'loading'}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+                  >
+                    {screensaverStatus === 'loading' ? 'Lädt...' : screensaverStatus === 'saving' ? 'Speichert...' : screensaverStatus === 'saved' ? '✓ Gespeichert' : screensaverStatus === 'error' ? '✗ Fehler' : '💾 Speichern'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                  Hinweis: Koordinaten werden automatisch aus dem Ortsnamen berechnet.
+                </p>
+              </section>
+
               {/* Pin-Sektion */}
               <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
@@ -721,40 +833,6 @@ export default function AdminPage() {
                       🔓 Pin entfernen
                     </button>
                   )}
-                </div>
-              </section>
-
-              {/* Screensaver-Sektion */}
-              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                  💤 Screensaver
-                </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                  Der Screensaver wird angezeigt, wenn auf der Show-Seite xx Minuten lang keine Aktivität vorhanden ist.
-                </p>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="screensaver-timeout" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      Timeout (Minuten):
-                    </label>
-                    <input
-                      id="screensaver-timeout"
-                      type="number"
-                      min="1"
-                      max="60"
-                      value={screensaverTimeout}
-                      onChange={(e) => setScreensaverTimeout(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5)))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveScreensaverTimeout()}
-                      className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
-                    />
-                  </div>
-                  <button
-                    onClick={handleSaveScreensaverTimeout}
-                    disabled={screensaverStatus === 'saving' || screensaverStatus === 'loading'}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
-                  >
-                    {screensaverStatus === 'loading' ? 'Lädt...' : screensaverStatus === 'saving' ? 'Speichert...' : screensaverStatus === 'saved' ? '✓ Gespeichert' : screensaverStatus === 'error' ? '✗ Fehler' : '💾 Speichern'}
-                  </button>
                 </div>
               </section>
             </div>

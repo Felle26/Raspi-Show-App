@@ -6,6 +6,14 @@ interface ScreensaverProps {
   onActivity: () => void;
 }
 
+interface ForecastDay {
+  date: string;
+  temperatureMaxC: number;
+  temperatureMinC: number;
+  weatherCode: number;
+  weatherText: string;
+}
+
 interface WeatherData {
   source: string;
   location: string;
@@ -14,6 +22,20 @@ interface WeatherData {
   weatherCode: number;
   weatherText: string;
   updatedAt: string;
+  forecast: ForecastDay[];
+}
+
+interface NewsItem {
+  title: string;
+  link: string;
+  publishedAt: string;
+  imageUrl: string;
+}
+
+interface NewsData {
+  source: string;
+  updatedAt: string;
+  items: NewsItem[];
 }
 
 function getDayPartLabel(hour: number): string {
@@ -36,10 +58,40 @@ function getDayPartLabel(hour: number): string {
   return 'Nachts';
 }
 
+function getWeatherIcon(weatherCode: number): string {
+  if (weatherCode === 0 || weatherCode === 1) {
+    return '☀️';
+  }
+
+  if (weatherCode === 2 || weatherCode === 3) {
+    return '⛅';
+  }
+
+  if (weatherCode === 45 || weatherCode === 48) {
+    return '🌫️';
+  }
+
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
+    return '🌧️';
+  }
+
+  if ([71, 73, 75, 77, 85, 86].includes(weatherCode)) {
+    return '🌨️';
+  }
+
+  if ([95, 96, 99].includes(weatherCode)) {
+    return '⛈️';
+  }
+
+  return '🌤️';
+}
+
 export function Screensaver({ onActivity }: ScreensaverProps) {
   const [now, setNow] = React.useState(() => new Date());
   const [weatherData, setWeatherData] = React.useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = React.useState(true);
+  const [newsData, setNewsData] = React.useState<NewsData | null>(null);
+  const [newsLoading, setNewsLoading] = React.useState(true);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {
@@ -99,7 +151,45 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
     };
 
     loadWeather();
-    const intervalId = window.setInterval(loadWeather, 10 * 60 * 1000);
+    const intervalId = window.setInterval(loadWeather, 60 * 60 * 1000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let ignore = false;
+
+    const loadNews = async () => {
+      try {
+        if (!ignore) {
+          setNewsLoading(true);
+        }
+
+        const response = await fetch('/api/news', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('Fehler beim Laden der News');
+        }
+
+        const data = (await response.json()) as NewsData;
+        if (!ignore) {
+          setNewsData(data);
+        }
+      } catch {
+        if (!ignore) {
+          setNewsData(null);
+        }
+      } finally {
+        if (!ignore) {
+          setNewsLoading(false);
+        }
+      }
+    };
+
+    loadNews();
+    const intervalId = window.setInterval(loadNews, 60 * 60 * 1000);
 
     return () => {
       ignore = true;
@@ -121,6 +211,7 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
   });
 
   const dayPartLabel = getDayPartLabel(now.getHours());
+  const forecastDays = weatherData?.forecast ?? [];
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden z-50">
@@ -153,12 +244,34 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
             <p className="text-slate-300/80 text-lg">Wetter wird geladen...</p>
           ) : weatherData ? (
             <>
+              <p className="text-5xl mb-1">{getWeatherIcon(weatherData.weatherCode)}</p>
               <p className="text-5xl md:text-6xl font-bold text-white leading-none mb-2">
                 {Math.round(weatherData.temperatureC)}°C
               </p>
               <p className="text-lg md:text-xl text-slate-200 mb-2">{weatherData.weatherText}</p>
               <p className="text-base text-slate-300 mb-1">Wind: {Math.round(weatherData.windKmh)} km/h</p>
               <p className="text-sm text-slate-400 mb-4">Ort: {weatherData.location}</p>
+
+              {forecastDays.length > 0 && (
+                <div className="w-full max-w-md grid grid-cols-3 gap-2 mb-4">
+                  {forecastDays.map((day) => (
+                    <div
+                      key={day.date}
+                      className="rounded-lg border border-white/15 bg-black/20 px-2 py-2"
+                    >
+                      <p className="text-lg leading-none mb-1">{getWeatherIcon(day.weatherCode)}</p>
+                      <p className="text-xs text-slate-300 font-semibold">
+                        {new Date(day.date).toLocaleDateString('de-DE', { weekday: 'short' })}
+                      </p>
+                      <p className="text-xs text-slate-400 leading-tight mb-1">{day.weatherText}</p>
+                      <p className="text-sm text-white font-semibold">
+                        {Math.round(day.temperatureMaxC)}° / {Math.round(day.temperatureMinC)}°
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <p className="text-xs text-slate-500">Quelle: {weatherData.source}</p>
             </>
           ) : (
@@ -167,8 +280,51 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
         </section>
 
         {/* 3. Feld */}
-        <section className="border border-white/10 p-8 flex items-center justify-center">
-          <p className="text-slate-300/80 text-xl">Feld 3</p>
+        <section className="border border-white/10 p-8 flex flex-col">
+          <p className="text-sm tracking-[0.2em] uppercase text-violet-200/80 mb-4 text-center">Newsfeed</p>
+          {newsLoading ? (
+            <p className="text-slate-300/80 text-lg text-center my-auto">Nachrichten werden geladen...</p>
+          ) : newsData && newsData.items.length > 0 ? (
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3">
+                <div className="h-full space-y-3 overflow-y-auto pr-1">
+                  {newsData.items.slice(0, 4).map((item) => (
+                    <article
+                      key={item.link || item.title}
+                      className="rounded-lg border border-white/15 bg-black/30 p-3 flex gap-3 items-start"
+                    >
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt="Newsbild"
+                          className="h-20 w-28 shrink-0 rounded-md object-cover border border-white/20"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-20 w-28 shrink-0 rounded-md border border-white/20 bg-white/5 flex items-center justify-center text-2xl">
+                          📰
+                        </div>
+                      )}
+
+                      <div className="min-w-0">
+                        <p className="text-base md:text-lg text-slate-100 leading-snug font-semibold line-clamp-3">
+                          {item.title}
+                        </p>
+                        {item.publishedAt && (
+                          <p className="text-xs text-slate-400 mt-1">
+                            {new Date(item.publishedAt).toLocaleString('de-DE')}
+                          </p>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mt-3 text-center">Quelle: {newsData.source}</p>
+            </div>
+          ) : (
+            <p className="text-slate-300/80 text-lg text-center my-auto">Newsfeed aktuell nicht verfügbar</p>
+          )}
         </section>
 
         {/* 4. Feld */}
