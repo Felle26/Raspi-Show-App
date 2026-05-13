@@ -75,7 +75,7 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
   return (
     <div className="fixed inset-0 bg-black overflow-hidden z-50">
       {/* Animated gradient background */}
-      <div className="absolute inset-0 bg-linear-to-br from-blue-900 via-slate-900 to-black opacity-80" />
+      <div className="absolute inset-0 opacity-80 animated-bg" />
 
       {/* Animated circles */}
       <div className="absolute inset-0">
@@ -136,6 +136,24 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
 
         .animate-blob {
           animation: blob 7s infinite;
+        }
+
+        .animated-bg {
+          background: linear-gradient(135deg, #0f172a, #6d28d9, #0f172a, #312e81, #000000);
+          background-size: 300% 300%;
+          animation: backgroundShift 150s ease-in-out infinite;
+        }
+
+        @keyframes backgroundShift {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
         }
 
         .animation-delay-2000 {
