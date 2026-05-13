@@ -93,6 +93,9 @@ export default function AdminPage() {
   const [editPassword, setEditPassword] = useState('');
   const [isPasswordSet, setIsPasswordSet] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [activeTab, setActiveTab] = useState<'dienstplan' | 'optionen'>('dienstplan');
+  const [screensaverTimeout, setScreensaverTimeout] = useState(5);
+  const [screensaverStatus, setScreensaverStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
 
   const loadPasswordStatus = async () => {
     try {
@@ -103,6 +106,44 @@ export default function AdminPage() {
       }
     } catch {
       // ignore
+    }
+  };
+
+  const loadScreensaverConfig = async () => {
+    try {
+      setScreensaverStatus('loading');
+      const res = await fetch('/api/screensaver-config');
+      if (res.ok) {
+        const data = await res.json();
+        setScreensaverTimeout(data.timeoutMinutes);
+      }
+      setScreensaverStatus('idle');
+    } catch {
+      setScreensaverStatus('error');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
+    }
+  };
+
+  const handleSaveScreensaverTimeout = async () => {
+    if (!Number.isFinite(screensaverTimeout) || screensaverTimeout < 1 || screensaverTimeout > 60) {
+      setScreensaverStatus('error');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
+      return;
+    }
+
+    setScreensaverStatus('saving');
+    try {
+      const res = await fetch('/api/screensaver-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeoutMinutes: screensaverTimeout }),
+      });
+      if (!res.ok) throw new Error();
+      setScreensaverStatus('saved');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
+    } catch {
+      setScreensaverStatus('error');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
     }
   };
 
@@ -288,6 +329,7 @@ export default function AdminPage() {
 
     loadData();
     loadPasswordStatus();
+    loadScreensaverConfig();
   }, [adminAccessGranted]);
 
   useEffect(() => {
@@ -471,19 +513,46 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="flex-1 p-6 flex gap-6 overflow-hidden">
-        {/* Left Panel: Upload & Files */}
-        <div className="flex-1 overflow-y-auto flex flex-col gap-6">
-          {/* Upload Section */}
-          <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-              📄 PDF hochladen
-            </h2>
-            <PDFUpload onUploadComplete={() => loadData()} />
-          </section>
+      <main className="flex-1 p-6 flex gap-6 overflow-hidden flex-col">
+        {/* Tab Navigation */}
+        <div className="flex gap-2 border-b border-gray-300 dark:border-gray-700">
+          <button
+            onClick={() => setActiveTab('dienstplan')}
+            className={`px-4 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'dienstplan'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            📋 Dienstpläne
+          </button>
+          <button
+            onClick={() => setActiveTab('optionen')}
+            className={`px-4 py-3 font-semibold border-b-2 transition-colors ${
+              activeTab === 'optionen'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            ⚙️ Optionen
+          </button>
+        </div>
 
-          {/* Files Section */}
-          <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6 flex-1 overflow-y-auto">
+        {/* Tab Content Container */}
+        <div className="flex-1 overflow-hidden flex gap-6">
+          {/* Dienstplan Tab */}
+          {activeTab === 'dienstplan' && (
+            <div className="flex-1 overflow-y-auto flex flex-col gap-6">
+              {/* Upload Section */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                  📄 PDF hochladen
+                </h2>
+                <PDFUpload onUploadComplete={() => loadData()} />
+              </section>
+
+              {/* Files Section */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6 flex-1 overflow-y-auto">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
               📋 Hochgeladene Dienstpläne
             </h2>
@@ -500,7 +569,7 @@ export default function AdminPage() {
                     className="border-2 border-gray-300 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-slate-800"
                   >
                     {/* Group Header */}
-                    <div className="bg-gradient-to-r from-blue-100 to-blue-50 dark:from-slate-700 dark:to-slate-800 px-4 py-3 border-b border-gray-300 dark:border-gray-700 flex items-center justify-between gap-4 flex-wrap">
+                    <div className="bg-linear-to-r from-blue-100 to-blue-50 dark:from-slate-700 dark:to-slate-800 px-4 py-3 border-b border-gray-300 dark:border-gray-700 flex items-center justify-between gap-4 flex-wrap">
                       <div>
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white">
                           {group.label}
@@ -608,59 +677,100 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
-          </section>
+              </section>
+            </div>
+          )}
 
-          {/* Pin-Sektion */}
-          <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-            🔒 Ändern-Bereich Pin
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            {isPasswordSet
-              ? 'Eine Pin ist gesetzt. Der Ändern-Bereich in der Show-Ansicht ist geschützt. Es sind nur Zahlen erlaubt.'
-              : 'Keine Pin gesetzt – der Ändern-Bereich ist frei zugänglich. Neue Pins dürfen nur Zahlen enthalten.'}
-          </p>
-          <div className="flex gap-2 flex-wrap items-center">
-            <input
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder="Neue Pin..."
-              value={editPassword}
-              onChange={(e) => setEditPassword(e.target.value.replace(/\D+/g, ''))}
-              onKeyDown={(e) => e.key === 'Enter' && handleSavePassword()}
-              className="flex-1 min-w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
-            />
-            <button
-              onClick={handleSavePassword}
-              disabled={passwordStatus === 'saving' || !editPassword}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
-            >
-              {passwordStatus === 'saving' ? 'Speichert...' : passwordStatus === 'saved' ? '✓ Gespeichert' : passwordStatus === 'error' ? '✗ Fehler' : '💾 Pin speichern'}
-            </button>
-            {isPasswordSet && (
-              <button
-                onClick={handleRemovePassword}
-                disabled={passwordStatus === 'saving'}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
-              >
-                🔓 Passwort entfernen
-              </button>
-            )}
-          </div>
-        </section>
+          {/* Optionen Tab */}
+          {activeTab === 'optionen' && (
+            <div className="flex-1 overflow-y-auto flex flex-col gap-6">
+              {/* Pin-Sektion */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  🔒 Ändern-Bereich Pin
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {isPasswordSet
+                    ? 'Eine Pin ist gesetzt. Der Ändern-Bereich in der Show-Ansicht ist geschützt. Es sind nur Zahlen erlaubt.'
+                    : 'Keine Pin gesetzt – der Ändern-Bereich ist frei zugänglich. Neue Pins dürfen nur Zahlen enthalten.'}
+                </p>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="Neue Pin..."
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value.replace(/\D+/g, ''))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSavePassword()}
+                    className="flex-1 min-w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+                  />
+                  <button
+                    onClick={handleSavePassword}
+                    disabled={passwordStatus === 'saving' || !editPassword}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+                  >
+                    {passwordStatus === 'saving' ? 'Speichert...' : passwordStatus === 'saved' ? '✓ Gespeichert' : passwordStatus === 'error' ? '✗ Fehler' : '💾 Pin speichern'}
+                  </button>
+                  {isPasswordSet && (
+                    <button
+                      onClick={handleRemovePassword}
+                      disabled={passwordStatus === 'saving'}
+                      className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+                    >
+                      🔓 Pin entfernen
+                    </button>
+                  )}
+                </div>
+              </section>
+
+              {/* Screensaver-Sektion */}
+              <section className="bg-white dark:bg-slate-900 rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  💤 Screensaver
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Der Screensaver wird angezeigt, wenn auf der Show-Seite xx Minuten lang keine Aktivität vorhanden ist.
+                </p>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="screensaver-timeout" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Timeout (Minuten):
+                    </label>
+                    <input
+                      id="screensaver-timeout"
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={screensaverTimeout}
+                      onChange={(e) => setScreensaverTimeout(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5)))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveScreensaverTimeout()}
+                      className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveScreensaverTimeout}
+                    disabled={screensaverStatus === 'saving' || screensaverStatus === 'loading'}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors whitespace-nowrap text-sm"
+                  >
+                    {screensaverStatus === 'loading' ? 'Lädt...' : screensaverStatus === 'saving' ? 'Speichert...' : screensaverStatus === 'saved' ? '✓ Gespeichert' : screensaverStatus === 'error' ? '✗ Fehler' : '💾 Speichern'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* Right Panel: PDF Preview with Layers (nur im Dienstplan-Tab) */}
+          {activeTab === 'dienstplan' && selectedPdfForPreview && (
+            <div className="flex-1 bg-white dark:bg-slate-900 rounded-lg shadow-lg overflow-hidden flex flex-col border-2 border-blue-500 dark:border-blue-600">
+              <PDFPreviewWithLayers
+                pdfUrl={`/dienstplan-uploads/${encodeURIComponent(selectedPdfForPreview)}`}
+                pdfName={selectedPdfForPreview}
+                drawings={drawings[selectedPdfForPreview] || []}
+              />
+            </div>
+          )}
         </div>
-
-        {/* Right Panel: PDF Preview with Layers */}
-        {selectedPdfForPreview && (
-          <div className="flex-1 bg-white dark:bg-slate-900 rounded-lg shadow-lg overflow-hidden flex flex-col border-2 border-blue-500 dark:border-blue-600">
-            <PDFPreviewWithLayers
-              pdfUrl={`/dienstplan-uploads/${encodeURIComponent(selectedPdfForPreview)}`}
-              pdfName={selectedPdfForPreview}
-              drawings={drawings[selectedPdfForPreview] || []}
-            />
-          </div>
-        )}
       </main>
     </div>
   );
