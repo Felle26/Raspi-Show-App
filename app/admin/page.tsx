@@ -20,6 +20,64 @@ interface PDFFile {
   uploadDate: string;
 }
 
+function extractKw(name: string): number | null {
+  const kwMatch = name.match(/(?:^|[^a-z0-9])k\W*w\W*([0-5]?\d)(?:\D|$)/i);
+  if (!kwMatch) {
+    return null;
+  }
+
+  const week = Number.parseInt(kwMatch[1], 10);
+  if (!Number.isFinite(week) || week < 1 || week > 53) {
+    return null;
+  }
+
+  return week;
+}
+
+function extractYear(uploadDate: string): number {
+  const parsed = new Date(uploadDate);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.getFullYear();
+  }
+
+  return new Date().getFullYear();
+}
+
+function getIsoWeekRange(year: number, week: number): { start: Date; end: Date } {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+
+  const start = new Date(week1Monday);
+  start.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+
+  return { start, end };
+}
+
+function formatDate(date: Date, shortYear = false): string {
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const year = String(date.getUTCFullYear());
+  const yearPart = shortYear ? year.slice(-2) : year;
+
+  return `${day}.${month}.${yearPart}`;
+}
+
+interface FileMeta {
+  kw: number | null;
+  year: number;
+}
+
+interface GroupedFileGroup {
+  key: string;
+  label: string;
+  files: PDFFile[];
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const lastChangedAtRef = useRef<string | null>(null);
@@ -30,6 +88,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [deletingDrawing, setDeletingDrawing] = useState<string | null>(null);
   const [deletingPdf, setDeletingPdf] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [selectedPdfForPreview, setSelectedPdfForPreview] = useState<string | null>(null);
   const [editPassword, setEditPassword] = useState('');
   const [isPasswordSet, setIsPasswordSet] = useState(false);
@@ -46,6 +105,78 @@ export default function AdminPage() {
       // ignore
     }
   };
+
+  const fileMeta = React.useMemo<Record<string, FileMeta>>(() => {
+    const map: Record<string, FileMeta> = {};
+    for (const file of files) {
+      map[file.name] = {
+        kw: extractKw(file.name),
+        year: extractYear(file.uploadDate),
+      };
+    }
+    return map;
+  }, [files]);
+
+  const sortedFiles = React.useMemo(() => {
+    const copy = [...files];
+    copy.sort((a, b) => {
+      const metaA = fileMeta[a.name];
+      const metaB = fileMeta[b.name];
+      const kwA = metaA?.kw ?? null;
+      const kwB = metaB?.kw ?? null;
+      const yearA = metaA?.year ?? new Date().getFullYear();
+      const yearB = metaB?.year ?? new Date().getFullYear();
+
+      if (kwA !== null && kwB !== null) {
+        if (yearA !== yearB) {
+          return yearB - yearA;
+        }
+
+        if (kwA !== kwB) {
+          return kwB - kwA;
+        }
+
+        return b.name.localeCompare(a.name, 'de', { numeric: true, sensitivity: 'base' });
+      }
+
+      if (kwA !== null) {
+        return -1;
+      }
+
+      if (kwB !== null) {
+        return 1;
+      }
+
+      return b.name.localeCompare(a.name, 'de', { numeric: true, sensitivity: 'base' });
+    });
+
+    return copy;
+  }, [fileMeta, files]);
+
+  const groupedFiles = React.useMemo<GroupedFileGroup[]>(() => {
+    const groups = new Map<string, { label: string; files: PDFFile[] }>();
+
+    for (const file of sortedFiles) {
+      const meta = fileMeta[file.name];
+      const kw = meta?.kw ?? null;
+      const year = meta?.year ?? new Date().getFullYear();
+      const key = kw === null ? 'ohne-kw' : `kw-${kw}-${year}`;
+
+      let label = 'Ohne KW';
+      if (kw !== null) {
+        const range = getIsoWeekRange(year, kw);
+        label = `KW ${kw} | ${formatDate(range.start, true)} - ${formatDate(range.end)}`;
+      }
+
+      if (!groups.has(key)) {
+        groups.set(key, { label, files: [] });
+      }
+
+      groups.get(key)!.files.push(file);
+    }
+
+    return [...groups.entries()].map(([key, value]) => ({ key, ...value }));
+  }, [sortedFiles, fileMeta]);
 
   const handleSavePassword = async () => {
     if (editPassword && !/^\d+$/.test(editPassword)) {
@@ -128,14 +259,26 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    const confirmed = window.confirm('Admin-Bereich öffnen?');
-    if (!confirmed) {
-      router.replace('/');
-      return;
-    }
+    // Prüfe, ob bereits in dieser Session bestätigt wurde
+    const sessionConfirmed = typeof window !== 'undefined' && sessionStorage.getItem('adminAccessConfirmed') === 'true';
 
-    setAdminAccessGranted(true);
-    setAdminAccessChecked(true);
+    if (sessionConfirmed) {
+      // In dieser Session bereits bestätigt - direkt laden
+      setAdminAccessGranted(true);
+      setAdminAccessChecked(true);
+    } else {
+      // Erste Anfrage in dieser Session
+      const confirmed = window.confirm('Admin-Bereich öffnen?');
+      if (!confirmed) {
+        router.replace('/');
+        return;
+      }
+
+      // Speichere die Bestätigung in dieser Session
+      sessionStorage.setItem('adminAccessConfirmed', 'true');
+      setAdminAccessGranted(true);
+      setAdminAccessChecked(true);
+    }
   }, [router]);
 
   useEffect(() => {
@@ -254,6 +397,59 @@ export default function AdminPage() {
     }
   };
 
+  const handleDeleteGroup = async (group: GroupedFileGroup) => {
+    const fileCount = group.files.length;
+    if (
+      !window.confirm(
+        `Alle ${fileCount} PDF(s) der Gruppe "${group.label}" und zugehörige Änderungen wirklich löschen?`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingGroup(group.key);
+    try {
+      let successCount = 0;
+      for (const file of group.files) {
+        try {
+          const response = await fetch('/api/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: file.name }),
+          });
+
+          if (response.ok) {
+            successCount++;
+          }
+        } catch (err) {
+          console.error(`Fehler beim Löschen von ${file.name}:`, err);
+        }
+      }
+
+      if (successCount === fileCount) {
+        setFiles((prev) => prev.filter((f) => !group.files.map((gf) => gf.name).includes(f.name)));
+        setDrawings((prev) => {
+          const newDrawings = { ...prev };
+          for (const file of group.files) {
+            delete newDrawings[file.name];
+          }
+          return newDrawings;
+        });
+        setSelectedPdfForPreview((prev) =>
+          group.files.map((f) => f.name).includes(prev ?? '') ? null : prev
+        );
+        alert(`${successCount} PDF(s) aus der Gruppe gelöscht`);
+        router.refresh();
+      } else {
+        alert(`Nur ${successCount} von ${fileCount} PDF(s) gelöscht`);
+      }
+    } catch (err) {
+      alert(`Fehler beim Löschen der Gruppe: ${err}`);
+    } finally {
+      setDeletingGroup(null);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-linear-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
@@ -297,88 +493,117 @@ export default function AdminPage() {
             ) : files.length === 0 ? (
               <p className="text-gray-600 dark:text-gray-400">Keine PDFs vorhanden</p>
             ) : (
-              <div className="space-y-4">
-                {files.map((file) => (
+              <div className="space-y-6">
+                {groupedFiles.map((group) => (
                   <div
-                    key={file.name}
-                    className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-slate-800"
+                    key={group.key}
+                    className="border-2 border-gray-300 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-slate-800"
                   >
-                    <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
-                          {file.name}
+                    {/* Group Header */}
+                    <div className="bg-gradient-to-r from-blue-100 to-blue-50 dark:from-slate-700 dark:to-slate-800 px-4 py-3 border-b border-gray-300 dark:border-gray-700 flex items-center justify-between gap-4 flex-wrap">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                          {group.label}
                         </h3>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Hochgeladen: {new Date(file.uploadDate).toLocaleString('de-DE')}
+                          {group.files.length} PDF{group.files.length !== 1 ? 's' : ''}
                         </p>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            setSelectedPdfForPreview(
-                              selectedPdfForPreview === file.name ? null : file.name
-                            )
-                          }
-                          className={`px-3 py-2 rounded-lg transition-colors font-semibold text-sm whitespace-nowrap ${
-                            selectedPdfForPreview === file.name
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-blue-400 hover:bg-blue-500 text-white'
-                          }`}
-                        >
-                          {selectedPdfForPreview === file.name ? '👁️ Anzeige an' : '👁️ Anzeige'}
-                        </button>
-                        <button
-                          onClick={() => handleDeletePdf(file.name)}
-                          disabled={deletingPdf === file.name}
-                          className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded-lg transition-colors font-semibold whitespace-nowrap"
-                        >
-                          {deletingPdf === file.name ? '🗑️ Löscht...' : '🗑️ Löschen'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => handleDeleteGroup(group)}
+                        disabled={deletingGroup === group.key}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded-lg transition-colors font-semibold whitespace-nowrap"
+                      >
+                        {deletingGroup === group.key ? '🗑️ Löscht...' : '🗑️ Gruppe löschen'}
+                      </button>
                     </div>
 
-                    {/* Zeichnungen für diese PDF */}
-                    {drawings[file.name] && drawings[file.name].length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-300 dark:border-gray-700 bg-linear-to-r from-blue-50 to-transparent dark:from-slate-700 dark:to-transparent rounded p-4">
-                        <h4 className="font-semibold text-gray-900 dark:text-white mb-3">
-                          ✏️ Gespeicherte Zeichnungen: {drawings[file.name].length}
-                        </h4>
-                        <div className="space-y-2">
-                          {drawings[file.name].map((drawing) => (
-                            <div
-                              key={drawing.id}
-                              className="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-gray-600"
-                            >
-                              <div className="flex-1 text-sm">
-                                <p className="font-medium text-gray-900 dark:text-white">
-                                  📍 Seite {drawing.page}
-                                </p>
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  {new Date(drawing.createdAt).toLocaleString('de-DE')}
-                                </p>
-                              </div>
-                              <div className="flex gap-2">
-                                <a
-                                  href={drawing.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors font-medium"
-                                >
-                                  👁️ Ansicht
-                                </a>
-                                <button
-                                  onClick={() => handleDeleteDrawing(drawing.id, file.name)}
-                                  disabled={deletingDrawing === drawing.id}
-                                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded text-sm transition-colors font-medium"
-                                >
-                                  {deletingDrawing === drawing.id ? '...' : '🗑️ Änderung'}
-                                </button>
+                    {/* Group Content */}
+                    <div className="p-4 space-y-3">
+                      {group.files.map((file) => (
+                        <div
+                          key={file.name}
+                          className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-slate-900"
+                        >
+                          <div className="flex items-start justify-between mb-2 gap-3 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-base font-semibold text-gray-900 dark:text-white truncate">
+                                {file.name}
+                              </h4>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                Hochgeladen: {new Date(file.uploadDate).toLocaleString('de-DE')}
+                              </p>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={() =>
+                                  setSelectedPdfForPreview(
+                                    selectedPdfForPreview === file.name ? null : file.name
+                                  )
+                                }
+                                className={`px-3 py-2 rounded-lg transition-colors font-semibold text-sm whitespace-nowrap ${
+                                  selectedPdfForPreview === file.name
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-blue-400 hover:bg-blue-500 text-white'
+                                }`}
+                              >
+                                {selectedPdfForPreview === file.name ? '👁️ An' : '👁️ Aus'}
+                              </button>
+                              <button
+                                onClick={() => handleDeletePdf(file.name)}
+                                disabled={deletingPdf === file.name}
+                                className="px-3 py-2 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded-lg transition-colors font-semibold text-sm whitespace-nowrap"
+                              >
+                                {deletingPdf === file.name ? '🗑️ Löscht...' : '🗑️ Löschen'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Zeichnungen für diese PDF */}
+                          {drawings[file.name] && drawings[file.name].length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-700">
+                              <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                ✏️ Zeichnungen: {drawings[file.name].length}
+                              </h5>
+                              <div className="space-y-1 ml-2">
+                                {drawings[file.name].map((drawing) => (
+                                  <div
+                                    key={drawing.id}
+                                    className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-800 rounded text-xs"
+                                  >
+                                    <div className="flex-1">
+                                      <p className="font-medium text-gray-900 dark:text-white">
+                                        Seite {drawing.page}
+                                      </p>
+                                      <p className="text-gray-600 dark:text-gray-400">
+                                        {new Date(drawing.createdAt).toLocaleString('de-DE')}
+                                      </p>
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <a
+                                        href={drawing.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+                                      >
+                                        👁️
+                                      </a>
+                                      <button
+                                        onClick={() => handleDeleteDrawing(drawing.id, file.name)}
+                                        disabled={deletingDrawing === drawing.id}
+                                        className="px-2 py-1 bg-red-500 hover:bg-red-600 disabled:bg-red-300 dark:disabled:bg-red-900 text-white rounded transition-colors"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
-                          ))}
+                          )}
                         </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
