@@ -6,6 +6,16 @@ interface ScreensaverProps {
   onActivity: () => void;
 }
 
+interface WeatherData {
+  source: string;
+  location: string;
+  temperatureC: number;
+  windKmh: number;
+  weatherCode: number;
+  weatherText: string;
+  updatedAt: string;
+}
+
 function getDayPartLabel(hour: number): string {
   if (hour >= 5 && hour <= 10) {
     return 'Morgens';
@@ -28,6 +38,8 @@ function getDayPartLabel(hour: number): string {
 
 export function Screensaver({ onActivity }: ScreensaverProps) {
   const [now, setNow] = React.useState(() => new Date());
+  const [weatherData, setWeatherData] = React.useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = React.useState(true);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {
@@ -56,6 +68,44 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
       window.removeEventListener('touchstart', handleActivity);
     };
   }, [onActivity]);
+
+  React.useEffect(() => {
+    let ignore = false;
+
+    const loadWeather = async () => {
+      try {
+        if (!ignore) {
+          setWeatherLoading(true);
+        }
+
+        const response = await fetch('/api/weather', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('Fehler beim Laden der Wetterdaten');
+        }
+
+        const data = (await response.json()) as WeatherData;
+        if (!ignore) {
+          setWeatherData(data);
+        }
+      } catch {
+        if (!ignore) {
+          setWeatherData(null);
+        }
+      } finally {
+        if (!ignore) {
+          setWeatherLoading(false);
+        }
+      }
+    };
+
+    loadWeather();
+    const intervalId = window.setInterval(loadWeather, 10 * 60 * 1000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const timeText = now.toLocaleTimeString('de-DE', {
     hour: '2-digit',
@@ -97,8 +147,23 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
         </section>
 
         {/* 2. Feld */}
-        <section className="border border-white/10 p-8 flex items-center justify-center">
-          <p className="text-slate-300/80 text-xl">Feld 2</p>
+        <section className="border border-white/10 p-8 flex flex-col items-center justify-center text-center">
+          <p className="text-sm tracking-[0.2em] uppercase text-orange-200/80 mb-4">Wetterbericht</p>
+          {weatherLoading ? (
+            <p className="text-slate-300/80 text-lg">Wetter wird geladen...</p>
+          ) : weatherData ? (
+            <>
+              <p className="text-5xl md:text-6xl font-bold text-white leading-none mb-2">
+                {Math.round(weatherData.temperatureC)}°C
+              </p>
+              <p className="text-lg md:text-xl text-slate-200 mb-2">{weatherData.weatherText}</p>
+              <p className="text-base text-slate-300 mb-1">Wind: {Math.round(weatherData.windKmh)} km/h</p>
+              <p className="text-sm text-slate-400 mb-4">Ort: {weatherData.location}</p>
+              <p className="text-xs text-slate-500">Quelle: {weatherData.source}</p>
+            </>
+          ) : (
+            <p className="text-slate-300/80 text-lg">Wetterdaten aktuell nicht verfügbar</p>
+          )}
         </section>
 
         {/* 3. Feld */}
