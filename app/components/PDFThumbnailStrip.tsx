@@ -108,14 +108,14 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
 
       if (kwA !== null && kwB !== null) {
         if (yearA !== yearB) {
-          return yearA - yearB;
+          return yearB - yearA;
         }
 
         if (kwA !== kwB) {
-          return kwA - kwB;
+          return kwB - kwA;
         }
 
-        return a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' });
+        return b.name.localeCompare(a.name, 'de', { numeric: true, sensitivity: 'base' });
       }
 
       if (kwA !== null) {
@@ -126,7 +126,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
         return 1;
       }
 
-      return a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' });
+      return b.name.localeCompare(a.name, 'de', { numeric: true, sensitivity: 'base' });
     });
 
     return copy;
