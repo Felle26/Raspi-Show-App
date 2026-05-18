@@ -19,6 +19,7 @@ interface DrawingToolbarProps {
   isSaving: boolean;
   showLayersPanel: boolean;
   onLayersToggle: () => void;
+  onTextKeyboardShow: () => void;
 }
 
 const COLORS: DrawingColor[] = ['#000000', '#FF0000', '#00AA00', '#0000FF', '#FFAA00'];
@@ -44,18 +45,19 @@ export function DrawingToolbar({
   isSaving,
   showLayersPanel,
   onLayersToggle,
+  onTextKeyboardShow,
 }: DrawingToolbarProps) {
   return (
-    <div className="flex gap-4 items-center justify-center p-4 bg-white dark:bg-slate-900 border-b border-gray-300 dark:border-gray-700 flex-wrap">
+    <div className="flex flex-wrap items-center justify-center gap-5 border-b border-gray-300 bg-white p-5 dark:border-gray-700 dark:bg-slate-900">
       {/* Farb-Buttons */}
-      <div className="flex gap-2 items-center">
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Farben:</span>
+      <div className="flex items-center gap-3">
+        <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Farben:</span>
         {COLORS.map((color) => (
           <button
             key={color}
             onClick={() => onColorChange(color)}
             title={COLOR_NAMES[color]}
-            className={`w-8 h-8 rounded-lg border-2 transition-transform ${
+            className={`h-11 w-11 rounded-lg border-2 transition-transform ${
               currentTool === 'brush' && currentColor === color
                 ? 'border-gray-800 dark:border-white scale-110'
                 : 'border-gray-400 dark:border-gray-600 hover:scale-105'
@@ -66,11 +68,11 @@ export function DrawingToolbar({
       </div>
 
       {/* Tool-Buttons */}
-      <div className="flex gap-2 items-center border-l border-gray-300 dark:border-gray-700 pl-4">
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Tools:</span>
+      <div className="flex items-center gap-2 border-l border-gray-300 pl-5 dark:border-gray-700">
+        <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Tools:</span>
         <button
           onClick={() => onToolChange('brush')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`min-h-12 rounded-lg px-5 py-3 text-base font-semibold transition-colors ${
             currentTool === 'brush'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -80,7 +82,7 @@ export function DrawingToolbar({
         </button>
         <button
           onClick={() => onToolChange('eraser')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`min-h-12 rounded-lg px-5 py-3 text-base font-semibold transition-colors ${
             currentTool === 'eraser'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -90,7 +92,7 @@ export function DrawingToolbar({
         </button>
         <button
           onClick={() => onToolChange('text')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`min-h-12 rounded-lg px-5 py-3 text-base font-semibold transition-colors ${
             currentTool === 'text'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -102,38 +104,62 @@ export function DrawingToolbar({
 
       {/* Text Input & Font Size */}
       {currentTool === 'text' && (
-        <div className="flex gap-2 items-center border-l border-gray-300 dark:border-gray-700 pl-4">
-          <input
-            type="text"
-            placeholder="Text eingeben..."
-            value={textInput}
-            onChange={(e) => onTextChange(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm w-32"
-          />
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Größe:
-            </label>
+        <div className="flex items-start gap-3 border-l border-gray-300 pl-5 dark:border-gray-700">
+          <div className="flex flex-col gap-2">
             <input
-              type="range"
-              min="12"
-              max="72"
-              value={fontSize}
-              onChange={(e) => onFontSizeChange(parseInt(e.target.value))}
-              className="w-28 h-2 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer"
+              type="text"
+              placeholder="Text eingeben..."
+              value={textInput}
+              onFocus={onTextKeyboardShow}
+              onClick={onTextKeyboardShow}
+              onChange={(e) => onTextChange(e.target.value)}
+              className="w-56 rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 dark:border-gray-600 dark:bg-slate-800 dark:text-white"
             />
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 w-8">
-              {fontSize}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold text-gray-700 dark:text-gray-300">Größe:</span>
+              <button
+                type="button"
+                onClick={() => onFontSizeChange(24)}
+                className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition-colors ${
+                  fontSize === 24
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
+                }`}
+              >
+                24px
+              </button>
+              <button
+                type="button"
+                onClick={() => onFontSizeChange(32)}
+                className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition-colors ${
+                  fontSize === 32
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
+                }`}
+              >
+                32px
+              </button>
+              <button
+                type="button"
+                onClick={() => onFontSizeChange(40)}
+                className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition-colors ${
+                  fontSize === 40
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
+                }`}
+              >
+                40px
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Action-Buttons */}
-      <div className="flex gap-2 items-center border-l border-gray-300 dark:border-gray-700 pl-4">
+      <div className="flex items-center gap-2 border-l border-gray-300 pl-5 dark:border-gray-700">
         <button
           onClick={onLayersToggle}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`min-h-12 rounded-lg px-5 py-3 text-base font-semibold transition-colors ${
             showLayersPanel
               ? 'bg-blue-500 text-white'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -143,14 +169,14 @@ export function DrawingToolbar({
         </button>
         <button
           onClick={onClear}
-          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+          className="min-h-12 rounded-lg bg-red-500 px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-red-600"
         >
           🗑️ Löschen
         </button>
         <button
           onClick={onSave}
           disabled={isSaving}
-          className={`px-4 py-2 rounded-lg transition-colors font-semibold ${
+          className={`min-h-12 rounded-lg px-5 py-3 text-base font-semibold transition-colors ${
             isSaving
               ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
               : 'bg-green-500 hover:bg-green-600 text-white'

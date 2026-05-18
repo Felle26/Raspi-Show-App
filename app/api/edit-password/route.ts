@@ -48,11 +48,23 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const config = await readConfig();
+  const password = String(body.password ?? '').trim();
 
-  if (!body.password) {
+  if (!password) {
     delete config.editPasswordHash;
   } else {
-    config.editPasswordHash = hashPassword(String(body.password));
+    if (!/^\d+$/.test(password)) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'EDIT_PASSWORD_NUMERIC_ONLY',
+          message: 'Passwort darf nur Zahlen enthalten.',
+        },
+        { status: 400 }
+      );
+    }
+
+    config.editPasswordHash = hashPassword(password);
   }
 
   await writeConfig(config);

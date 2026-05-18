@@ -3,8 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerPort) {
-  GlobalWorkerOptions.workerPort = new Worker('/pdf.worker.min.js');
+if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) {
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 }
 
 interface Drawing {
