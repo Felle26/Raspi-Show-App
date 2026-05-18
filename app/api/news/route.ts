@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
 
-const ARD_RSS_URL = 'https://www.tagesschau.de/xml/rss2';
+const FEEDS = [
+  { name: 'ARD Tagesschau', url: 'https://www.tagesschau.de/xml/rss2' },
+  { name: 'ZDF heute', url: 'https://www.zdf.de/rss/zdf/nachrichten' },
+  { name: 'Deutschlandfunk', url: 'https://www.deutschlandfunk.de/nachrichten-100.rss' },
+] as const;
 
 interface NewsItem {
   title: string;
   link: string;
   publishedAt: string;
   imageUrl: string;
+  sourceName: string;
 }
 
 function decodeXmlEntities(value: string): string {
@@ -44,7 +49,7 @@ function extractImageUrl(xmlChunk: string): string {
   return '';
 }
 
-function parseRssItems(xml: string): NewsItem[] {
+function parseRssItems(xml: string, sourceName: string): NewsItem[] {
   const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
   const items: NewsItem[] = [];
 
@@ -62,6 +67,7 @@ function parseRssItems(xml: string): NewsItem[] {
         link,
         publishedAt,
         imageUrl,
+        sourceName,
       });
     }
 
@@ -71,28 +77,49 @@ function parseRssItems(xml: string): NewsItem[] {
   return items;
 }
 
+function parseDateOrZero(value: string): number {
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 export async function GET() {
   try {
-    const response = await fetch(ARD_RSS_URL, {
-      cache: 'no-store',
-      next: { revalidate: 0 },
+    const responses = await Promise.all(
+      FEEDS.map(async (feed) => {
+        try {
+          const response = await fetch(feed.url, {
+            cache: 'no-store',
+            next: { revalidate: 0 },
+          });
+
+          if (!response.ok) {
+            return [] as NewsItem[];
+          }
+
+          const xml = await response.text();
+          return parseRssItems(xml, feed.name);
+        } catch {
+          return [] as NewsItem[];
+        }
+      })
+    );
+
+    const merged = responses.flat();
+    const deduped = merged.filter((item, index, arr) => {
+      const key = `${item.link}::${item.title}`;
+      return arr.findIndex((x) => `${x.link}::${x.title}` === key) === index;
     });
 
-    if (!response.ok) {
-      throw new Error(`Newsfeed antwortete mit Status ${response.status}`);
-    }
-
-    const xml = await response.text();
-    const allItems = parseRssItems(xml);
-    const items = allItems.slice(0, 8);
+    deduped.sort((a, b) => parseDateOrZero(b.publishedAt) - parseDateOrZero(a.publishedAt));
+    const items = deduped.slice(0, 24);
 
     return NextResponse.json({
-      source: 'ARD Tagesschau',
+      source: FEEDS.map((x) => x.name).join(' + '),
       updatedAt: new Date().toISOString(),
       items,
     });
   } catch (error) {
-    console.error('Fehler beim Laden der ARD-News:', error);
+    console.error('Fehler beim Laden der Newsfeeds:', error);
 
     return NextResponse.json(
       {

@@ -95,6 +95,7 @@ export default function AdminPage() {
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeTab, setActiveTab] = useState<'dienstplan' | 'optionen'>('dienstplan');
   const [screensaverTimeout, setScreensaverTimeout] = useState(5);
+  const [sportsSwitchMinutes, setSportsSwitchMinutes] = useState(5);
   const [weatherLocationName, setWeatherLocationName] = useState('Deutschland');
   const [weatherLatitude, setWeatherLatitude] = useState('51.1657');
   const [weatherLongitude, setWeatherLongitude] = useState('10.4515');
@@ -119,6 +120,7 @@ export default function AdminPage() {
       if (res.ok) {
         const data = await res.json();
         setScreensaverTimeout(data.timeoutMinutes);
+        setSportsSwitchMinutes(data.sportsSwitchMinutes ?? 5);
         setWeatherLocationName(data.weatherLocationName ?? 'Deutschland');
         setWeatherLatitude(String(data.weatherLatitude ?? 51.1657));
         setWeatherLongitude(String(data.weatherLongitude ?? 10.4515));
@@ -137,6 +139,12 @@ export default function AdminPage() {
       return;
     }
 
+    if (!Number.isFinite(sportsSwitchMinutes) || sportsSwitchMinutes < 1 || sportsSwitchMinutes > 60) {
+      setScreensaverStatus('error');
+      setTimeout(() => setScreensaverStatus('idle'), 2000);
+      return;
+    }
+
     if (!weatherLocationName.trim()) {
       setScreensaverStatus('error');
       setTimeout(() => setScreensaverStatus('idle'), 2000);
@@ -150,12 +158,14 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           timeoutMinutes: screensaverTimeout,
+          sportsSwitchMinutes,
           weatherLocationName: weatherLocationName.trim() || 'Deutschland',
         }),
       });
       if (!res.ok) throw new Error();
 
       const data = await res.json();
+      setSportsSwitchMinutes(data.sportsSwitchMinutes ?? sportsSwitchMinutes);
       setWeatherLatitude(String(data.weatherLatitude ?? weatherLatitude));
       setWeatherLongitude(String(data.weatherLongitude ?? weatherLongitude));
       setWeatherLocationName(data.weatherLocationName ?? weatherLocationName);
@@ -724,6 +734,21 @@ export default function AdminPage() {
                       max="60"
                       value={screensaverTimeout}
                       onChange={(e) => setScreensaverTimeout(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5)))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveScreensaverTimeout()}
+                      className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="sports-switch-minutes" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Sport-Reiter Wechsel (Minuten):
+                    </label>
+                    <input
+                      id="sports-switch-minutes"
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={sportsSwitchMinutes}
+                      onChange={(e) => setSportsSwitchMinutes(Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5)))}
                       onKeyDown={(e) => e.key === 'Enter' && handleSaveScreensaverTimeout()}
                       className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
                     />

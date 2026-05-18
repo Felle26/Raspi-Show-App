@@ -38,6 +38,46 @@ interface NewsData {
   items: NewsItem[];
 }
 
+interface SportsResult {
+  homeTeam: string;
+  awayTeam: string;
+  homeLogoUrl: string;
+  awayLogoUrl: string;
+  score: string;
+}
+
+interface SportsTableRow {
+  position: number;
+  team: string;
+  teamLogoUrl: string;
+  points: number;
+  goalDiff: number;
+}
+
+interface SportsTopMatch {
+  homeTeam: string;
+  awayTeam: string;
+  homeLogoUrl: string;
+  awayLogoUrl: string;
+  matchTime: string;
+}
+
+interface SportsLeague {
+  key: string;
+  name: string;
+  results: SportsResult[];
+  table: SportsTableRow[];
+  topMatch: SportsTopMatch | null;
+}
+
+interface SportsData {
+  source: string;
+  season: number;
+  switchMinutes: number;
+  updatedAt: string;
+  leagues: SportsLeague[];
+}
+
 function getDayPartLabel(hour: number): string {
   if (hour >= 5 && hour <= 10) {
     return 'Morgens';
@@ -86,12 +126,33 @@ function getWeatherIcon(weatherCode: number): string {
   return '🌤️';
 }
 
+function TeamLogo({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = React.useState(false);
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className="h-5 w-5 rounded-sm object-contain bg-white/90 shrink-0"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-white/20 text-xs">🏷️</span>;
+}
+
 export function Screensaver({ onActivity }: ScreensaverProps) {
   const [now, setNow] = React.useState(() => new Date());
   const [weatherData, setWeatherData] = React.useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = React.useState(true);
   const [newsData, setNewsData] = React.useState<NewsData | null>(null);
   const [newsLoading, setNewsLoading] = React.useState(true);
+  const [sportsData, setSportsData] = React.useState<SportsData | null>(null);
+  const [sportsLoading, setSportsLoading] = React.useState(true);
+  const [activeSportsTab, setActiveSportsTab] = React.useState(0);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {
@@ -102,6 +163,60 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
       window.clearInterval(timer);
     };
   }, []);
+
+  React.useEffect(() => {
+    let ignore = false;
+
+    const loadSports = async () => {
+      try {
+        if (!ignore) {
+          setSportsLoading(true);
+        }
+
+        const response = await fetch('/api/sports', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('Fehler beim Laden der Sportdaten');
+        }
+
+        const data = (await response.json()) as SportsData;
+        if (!ignore) {
+          setSportsData(data);
+          setActiveSportsTab((prev) => (data.leagues.length > 0 ? prev % data.leagues.length : 0));
+        }
+      } catch {
+        if (!ignore) {
+          setSportsData(null);
+        }
+      } finally {
+        if (!ignore) {
+          setSportsLoading(false);
+        }
+      }
+    };
+
+    loadSports();
+    const intervalId = window.setInterval(loadSports, 60 * 60 * 1000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!sportsData || sportsData.leagues.length === 0) {
+      return;
+    }
+
+    const switchMs = Math.max(1, sportsData.switchMinutes) * 60 * 1000;
+    const switchIntervalId = window.setInterval(() => {
+      setActiveSportsTab((prev) => (prev + 1) % sportsData.leagues.length);
+    }, switchMs);
+
+    return () => {
+      window.clearInterval(switchIntervalId);
+    };
+  }, [sportsData]);
 
   React.useEffect(() => {
     const handleActivity = () => {
@@ -212,6 +327,8 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
 
   const dayPartLabel = getDayPartLabel(now.getHours());
   const forecastDays = weatherData?.forecast ?? [];
+  const sportsLeagues = sportsData?.leagues ?? [];
+  const activeLeague = sportsLeagues[activeSportsTab] ?? null;
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden z-50">
@@ -328,10 +445,98 @@ export function Screensaver({ onActivity }: ScreensaverProps) {
         </section>
 
         {/* 4. Feld */}
-        <section className="border border-white/10 p-8 flex flex-col items-center justify-center text-center">
-          <div className="text-6xl mb-3">💤</div>
-          <h2 className="text-2xl font-bold text-white mb-2">Screensaver</h2>
-          <p className="text-base text-slate-300">Berühre den Bildschirm, um fortzufahren</p>
+        <section className="border border-white/10 p-8 flex flex-col min-h-0">
+          <p className="text-sm tracking-[0.2em] uppercase text-emerald-200/80 mb-3 text-center">Sport</p>
+
+          {sportsLoading ? (
+            <p className="text-slate-300/80 text-lg text-center my-auto">Sportdaten werden geladen...</p>
+          ) : activeLeague ? (
+            <>
+              <div className="flex gap-2 justify-center mb-3 flex-wrap">
+                {sportsLeagues.map((league, idx) => (
+                  <button
+                    key={league.key}
+                    onClick={() => setActiveSportsTab(idx)}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${
+                      idx === activeSportsTab
+                        ? 'bg-emerald-500/30 border-emerald-300 text-emerald-100'
+                        : 'bg-black/20 border-white/20 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {league.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 flex-1 min-h-0">
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3 min-h-0 overflow-hidden">
+                  {activeLeague.topMatch && (
+                    <div className="mb-3 rounded-lg border border-emerald-300/25 bg-emerald-500/10 px-2 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-emerald-200 mb-1">Nächstes Top-Spiel</p>
+                      <div className="flex items-center justify-between gap-1 text-xs text-slate-100">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <TeamLogo src={activeLeague.topMatch.homeLogoUrl} alt={activeLeague.topMatch.homeTeam} />
+                          <span className="truncate">{activeLeague.topMatch.homeTeam}</span>
+                        </div>
+                        <span className="text-slate-400">vs</span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <TeamLogo src={activeLeague.topMatch.awayLogoUrl} alt={activeLeague.topMatch.awayTeam} />
+                          <span className="truncate">{activeLeague.topMatch.awayTeam}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-slate-300 mt-1">
+                        {new Date(activeLeague.topMatch.matchTime).toLocaleString('de-DE')}
+                      </p>
+                    </div>
+                  )}
+
+                  <p className="text-xs uppercase tracking-wide text-slate-300 mb-2">Ergebnisse</p>
+                  <ul className="space-y-1 text-xs text-slate-100 max-h-60 overflow-hidden pr-1">
+                    {activeLeague.results.slice(0, 5).map((match, idx) => (
+                      <li key={`${match.homeTeam}-${match.awayTeam}-${idx}`} className="flex justify-between gap-2 items-center">
+                        <span className="truncate flex items-center gap-1">
+                          <TeamLogo src={match.homeLogoUrl} alt={match.homeTeam} />
+                          <span className="truncate">{match.homeTeam}</span>
+                          <span className="text-slate-400">-</span>
+                          <TeamLogo src={match.awayLogoUrl} alt={match.awayTeam} />
+                          <span className="truncate">{match.awayTeam}</span>
+                        </span>
+                        <span className="shrink-0 font-semibold">{match.score}</span>
+                      </li>
+                    ))}
+                    {activeLeague.results.length === 0 && (
+                      <li className="text-slate-400">Keine Ergebnisse verfügbar</li>
+                    )}
+                  </ul>
+                </div>
+
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3 min-h-0 overflow-hidden flex-1">
+                  <p className="text-xs uppercase tracking-wide text-slate-300 mb-2">Tabelle</p>
+                  <ul className="space-y-0.5 text-[10px] text-slate-100 max-h-full overflow-y-auto pr-1">
+                    {activeLeague.table.map((row) => (
+                      <li key={`${row.position}-${row.team}`} className="grid grid-cols-[1.2rem_1fr_1.8rem] gap-0.5">
+                        <span className="text-slate-400 text-right">{row.position}.</span>
+                        <span className="truncate flex items-center gap-0.5">
+                          <TeamLogo src={row.teamLogoUrl} alt={row.team} />
+                          <span className="truncate">{row.team}</span>
+                        </span>
+                        <span className="text-right font-semibold">{row.points}</span>
+                      </li>
+                    ))}
+                    {activeLeague.table.length === 0 && (
+                      <li className="text-slate-400">Keine Tabelle verfügbar</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 mt-3 text-center">
+                Quelle: {sportsData?.source} | Wechsel: alle {sportsData?.switchMinutes} min
+              </p>
+            </>
+          ) : (
+            <p className="text-slate-300/80 text-lg text-center my-auto">Sportdaten aktuell nicht verfügbar</p>
+          )}
         </section>
 
         {/* Animated dots */}

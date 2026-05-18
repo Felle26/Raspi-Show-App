@@ -8,6 +8,7 @@ interface ScreensaverConfig {
   weatherLocationName: string;
   weatherLatitude: number;
   weatherLongitude: number;
+  sportsSwitchMinutes: number;
 }
 
 const DEFAULT_CONFIG: ScreensaverConfig = {
@@ -15,6 +16,7 @@ const DEFAULT_CONFIG: ScreensaverConfig = {
   weatherLocationName: 'Deutschland',
   weatherLatitude: 51.1657,
   weatherLongitude: 10.4515,
+  sportsSwitchMinutes: 5,
 };
 
 async function getConfig(): Promise<ScreensaverConfig> {
@@ -39,6 +41,10 @@ async function getConfig(): Promise<ScreensaverConfig> {
         Number.isFinite(parsed.weatherLongitude) && parsed.weatherLongitude! >= -180 && parsed.weatherLongitude! <= 180
           ? Number(parsed.weatherLongitude)
           : DEFAULT_CONFIG.weatherLongitude,
+      sportsSwitchMinutes:
+        Number.isFinite(parsed.sportsSwitchMinutes) && parsed.sportsSwitchMinutes! >= 1 && parsed.sportsSwitchMinutes! <= 60
+          ? Math.round(parsed.sportsSwitchMinutes!)
+          : DEFAULT_CONFIG.sportsSwitchMinutes,
     };
   } catch {
     return DEFAULT_CONFIG;
@@ -103,10 +109,18 @@ export async function POST(request: Request) {
       typeof body.weatherLocationName === 'string'
         ? body.weatherLocationName.trim().slice(0, 80)
         : currentConfig.weatherLocationName;
+    const sportsSwitchMinutes = Number(body.sportsSwitchMinutes ?? currentConfig.sportsSwitchMinutes);
 
     if (!Number.isFinite(timeoutMinutes) || timeoutMinutes < 1 || timeoutMinutes > 60) {
       return Response.json(
         { error: 'timeoutMinutes muss zwischen 1 und 60 liegen' },
+        { status: 400 }
+      );
+    }
+
+    if (!Number.isFinite(sportsSwitchMinutes) || sportsSwitchMinutes < 1 || sportsSwitchMinutes > 60) {
+      return Response.json(
+        { error: 'sportsSwitchMinutes muss zwischen 1 und 60 liegen' },
         { status: 400 }
       );
     }
@@ -127,6 +141,7 @@ export async function POST(request: Request) {
       weatherLocationName: resolvedLocationName,
       weatherLatitude: geocoded.latitude,
       weatherLongitude: geocoded.longitude,
+      sportsSwitchMinutes: Math.round(sportsSwitchMinutes),
     };
 
     await saveConfig(config);
