@@ -2,8 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import * as PDFJS from 'pdfjs-dist';
+import React, { useEffect, useState } from 'react';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) {
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+}
 
 interface PDFFile {
   name: string;
@@ -176,7 +180,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
 
     const createPdfThumbnail = async (pdfUrl: string): Promise<string | null> => {
       try {
-        const loadingTask = PDFJS.getDocument(pdfUrl);
+        const loadingTask = getDocument(pdfUrl);
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
 
@@ -237,7 +241,7 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
           const thumbs: Record<string, string> = {};
           for (const file of pdfFiles) {
             try {
-              const pdfUrl = `/dienstplan-uploads/${encodeURIComponent(file.name)}`;
+              const pdfUrl = `/api/files/${encodeURIComponent(file.name)}`;
               const thumbnail = await createPdfThumbnail(pdfUrl);
               if (thumbnail) {
                 thumbs[file.name] = thumbnail;
@@ -323,6 +327,35 @@ export function PDFThumbnailStrip({ onPDFSelect, selectedPdfName, onNewFilesDete
       >
         <span className="text-2xl font-bold">‹</span>
       </button>
+    <div className="bg-white dark:bg-slate-900 border-t border-gray-300 dark:border-gray-700 px-2 py-2">
+      <div className="flex gap-2 overflow-x-auto px-1 py-0.5">
+        {files.map((file) => (
+          <button
+            key={file.name}
+            onClick={() =>
+              onPDFSelect(file.name, `/api/files/${encodeURIComponent(file.name)}`)
+            }
+            title={file.name}
+            className={`shrink-0 cursor-pointer transition-colors flex items-center gap-2 rounded-md border px-2 py-1 h-16 min-w-max ${
+              selectedPdfName === file.name
+                ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            {/* Thumbnail oder Placeholder */}
+            {thumbnails[file.name] ? (
+              <div className="relative w-10 h-14 rounded-sm overflow-hidden border border-gray-300 dark:border-gray-600 bg-white">
+                <img
+                  src={thumbnails[file.name]}
+                  alt={file.name}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="w-10 h-14 rounded-sm border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-slate-700 flex items-center justify-center">
+                <span className="text-sm">📄</span>
+              </div>
+            )}
 
       {/* Right scroll button */}
       <button

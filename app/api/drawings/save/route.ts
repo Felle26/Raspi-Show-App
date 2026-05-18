@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readdir } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import { existsSync } from 'fs';
 
-const DRAWINGS_DIR = join(process.cwd(), 'public/dienstplan-drawings');
+const DRAWINGS_DIR = join(process.cwd(), 'storage/drawings');
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,24 +18,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Erstelle Verzeichnisse
-    const pdfDrawingsDir = join(DRAWINGS_DIR, sanitizePath(pdfName));
-    await mkdir(pdfDrawingsDir, { recursive: true });
+    const pdfKey = sanitizePath(stripPdfExtension(pdfName));
+    const drawingId = `${pdfKey}__${Date.now()}`;
+    await mkdir(DRAWINGS_DIR, { recursive: true });
 
     // Speichere Zeichnung
-    const fileName = `${Date.now()}.png`;
-    const filePath = join(pdfDrawingsDir, fileName);
+    const fileName = `${drawingId}.png`;
+    const filePath = join(DRAWINGS_DIR, fileName);
     const bytes = await file.arrayBuffer();
     await writeFile(filePath, Buffer.from(bytes));
 
     // Speichere Metadaten
-    const metaFileName = `${Date.now()}.json`;
-    const metaPath = join(pdfDrawingsDir, metaFileName);
+    const metaFileName = `${drawingId}.json`;
+    const metaPath = join(DRAWINGS_DIR, metaFileName);
     await writeFile(
       metaPath,
       JSON.stringify({
+        id: drawingId,
         fileName,
         pdfName,
+        pdfKey,
         page: parseInt(page),
         createdAt: new Date().toISOString(),
       })
@@ -54,6 +55,10 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function stripPdfExtension(name: string): string {
+  return name.replace(/\.pdf$/i, '');
 }
 
 function sanitizePath(name: string): string {

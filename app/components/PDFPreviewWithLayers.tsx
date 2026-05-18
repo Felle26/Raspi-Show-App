@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import * as PDFJS from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-PDFJS.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) {
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+}
 
 interface Drawing {
   id: string;
@@ -208,7 +210,7 @@ export function PDFPreviewWithLayers({
     const loadPdf = async () => {
       try {
         setError(null);
-        const pdfDoc = await PDFJS.getDocument(pdfUrl).promise;
+        const pdfDoc = await getDocument(pdfUrl).promise;
         setPdf(pdfDoc);
         setTotalPages(pdfDoc.numPages);
         setCurrentPage(1);
